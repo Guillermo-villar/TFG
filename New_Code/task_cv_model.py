@@ -3,7 +3,7 @@
 """
 Created on Wed Jul 17 11:52:14 2024
 
-@author: mlazaro
+@author: Francisco J. González
 """
 
 import datetime
