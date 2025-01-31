@@ -15,3 +15,12 @@ Trabajando en un codigo unico por su parte, LBFGS. Yo extracción de parámetros
 GridSearchCV
 
 
+
+
+Apuntes primeras runs small: 
+
+Para analizar small primero - 1 Analisis de parámetros en teoría, 2 Analisis de la implementación en código, 3 analisis de base de datos, 4 analisis coherencia de todos los anteriores. 
+
+Una vez hecho esto, (TODO after 3 y 4) pensar y proponer nuevas bases de datos. Analisis previo a resultados, y repetir analisis de un dataset (1-4) anteriores. 
+
+Con esto hecho dos veces, reunión y seguimos.
