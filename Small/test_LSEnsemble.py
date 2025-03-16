@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Sat Jan 18 13:40:58 2025
-
-@author: fran
-"""
 
 import logging
+import csv
+import time
 
 import numpy as np
 import pandas as pd
@@ -35,7 +32,11 @@ logging.basicConfig(
 mpl_logger = logging.getLogger("matplotlib")
 mpl_logger.setLevel(logging.WARNING)
 
+# Initialize best_model_overall
+best_model_overall = [None, None, 0, None]
 
+# Initialize best_model_conf
+best_model_conf = dict()
 
 # Synthetic Data Generation
 n_samples = 6000  # Total samples
@@ -43,7 +44,8 @@ n_features = 20    # Features between 30 and 50
 n_informative = 15
 n_redundant = 5
 n_classes = 2
-weights = [0.96, 0.04]  # Imbalance ratio IR > 100
+weights = [0.995, 0.005]  # Imbalance ratio IR > 100 (Extremo)
+#Line for repruducibility
 random_state = 42
 
 # Generate synthetic data
@@ -74,14 +76,23 @@ cw_train = np.ones(len(y_train))
 # Checking data statistics
 labels_train = pd.Series(y_train)  # Ensure it's a Series
 train_counts = labels_train.value_counts()
-print(
-    "    + Train labels distribution : False %d / True %d (IR=%.3f)"
-    % (
-        train_counts[0],
-        train_counts[1],
-        train_counts[0] / train_counts[1],
+if 1 in train_counts:
+    print(
+        "    + Train labels distribution : False %d / True %d (IR=%.3f)"
+        % (
+            train_counts[0],
+            train_counts[1],
+            train_counts[0] / train_counts[1],
+        )
     )
-)
+else:
+    print(
+        "    + Train labels distribution : False %d / True %d (IR=inf)"
+        % (
+            train_counts[0],
+            0,
+        )
+    )
 
 labels_test = pd.Series(y_test)  # Ensure it's a Series
 test_counts = labels_test.value_counts()
@@ -135,7 +146,7 @@ print(
 #                          the best average configuration ('conf')
 model_selection = "conf"
 
-n_simus = 3
+n_simus = 1  # Reduced to 1 to avoid running the same config multiple times
 
 # Hyperparameters to evaluate
 
@@ -146,171 +157,179 @@ costeN = 1
 costeP = 1
 
 s_No = [1]
-s_NnBase = [20]
-s_pDOent = [0.0]
-s_pDOocu = [0.0]
+s_NnBase = [20, 30]  # Increased variability
+s_pDOent = [0.0, 0.1]
+s_pDOocu = [0.0, 0.1]
 s_tActBase = ["tanh", "relu"]
 s_tActSalida = ["identity"]
-s_nBatch = [128]
-s_nEpoch = [100]
+s_nBatch = [128, 256]
+s_nEpoch = [100, 200]
 
 
 #LSEnsemble
-LS_alpha = [0.0] # [0.15, 0.2, 0.25]
-LS_beta = [0.0] # [0.0, 0.1]
+LS_alpha = [0.0, 0.05, 0.1]  # Increased variability
+LS_beta = [0.0, 0.05,0.1]
 LS_Q_RB_C = [2.0, 5.0]
 LS_Q_RB_S = [1, 2, 5]
-LS_num_experts = [21]
-LS_hidden_size = [30]
-LS_drop_out = [0] #[0 , 0.1]
-LS_n_batch = [128]
-LS_n_epoch = [50]
+LS_num_experts = [21, 31]
+LS_hidden_size = [30, 40]
+LS_drop_out = [0, 0.1]
+LS_n_batch = [128, 256]
+LS_n_epoch = [50, 100]
 
 # Define model configurations
 model_configs = [
+    {
+        "name": "LSEnsemble",
+        "class": LSEnsemble,
+        "params": {
+# 'drop_out': 0.0,
+            "lbfgs": False, #True, #
+            "mode": "random", # 'class_equitative', #  'representative', # 
+             'activation_fn': "relu",
+            'loss_fn': 'F1', # 'BCE', # 'KL', #
+        },
+        'dynamic_params': list(product(LS_Q_RB_S, LS_Q_RB_C, LS_num_experts, LS_hidden_size, LS_drop_out, LS_n_batch, LS_n_epoch))
+    },
     {
         "name": "MLPBayesBinW",
         "class": MLPBayesBinW,
         "params": {
             "class_cost": [costeN, costeP],
-            },
+        },
         'dynamic_params': list(product(s_No, s_NnBase, s_tActBase, s_tActSalida, s_pDOent, s_pDOocu, s_nBatch, s_nEpoch))
-    },
-    
-    {
-         "name": "LSEnsemble",
-         "class": LSEnsemble,
-         "params": {
-             # 'drop_out': 0.0,
-             "lbfgs": False, #True, # 
-             "mode": "random", # 'class_equitative', #  'representative', # 
-             'activation_fn': "relu",
-             'loss_fn': 'F1', # 'BCE', # 'KL', #  
-             },
-         'dynamic_params': list(product(LS_alpha, LS_beta, LS_Q_RB_S, LS_Q_RB_C, 
-                                        LS_num_experts, 
-                                        LS_hidden_size, LS_drop_out, 
-                                        LS_n_batch, LS_n_epoch))
-    },
+    }
 ]
 
-model_configs = [model_configs[1]]
+# Iterate through different versions of alpha and beta parameters
+for alpha in LS_alpha:
+    for beta in LS_beta:
+        for model_config in model_configs:
+            if model_config['name'] == 'LSEnsemble':
+                model_config['dynamic_params'] = list(product([alpha], [beta], LS_Q_RB_S, LS_Q_RB_C, LS_num_experts, LS_hidden_size, LS_drop_out, LS_n_batch, LS_n_epoch))
+            # CSV logging setup
+            csv_file = 'test_results.csv'
+            csv_columns = ['data_params', 'model_name', 'params', 'metric', 'confusion_matrix', 'accuracy', 'time_taken']
 
-# Main Loop
-logger.info("Training ML models (this can take some time)...")
+            with open(csv_file, 'w', newline='') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
+                writer.writeheader()
 
-best_metric_overall = 0
-best_model_overall = None
+                # Data generation parameters
+                data_params_list = [
+                    {'n_samples': 6000, 'n_features': 20, 'n_informative': 15, 'n_redundant': 5, 'n_classes': 2, 'weights': [0.96, 0.04], 'random_state': 42},
+                    {'n_samples': 8000, 'n_features': 30, 'n_informative': 20, 'n_redundant': 10, 'n_classes': 2, 'weights': [0.95, 0.05], 'random_state': 42},
+                    # Add more data generation parameter sets as needed
+                ]
 
-metric_conf = dict()
-best_metric_conf = dict()
-best_model_conf = dict()
+                for data_params in data_params_list:
+                    # Generate synthetic data
+                    x, y = make_classification(
+                        n_samples=data_params['n_samples'],
+                        n_features=data_params['n_features'],
+                        n_informative=data_params['n_informative'],
+                        n_redundant=data_params['n_redundant'],
+                        n_classes=data_params['n_classes'],
+                        weights=data_params['weights'],
+                        flip_y=0,
+                        random_state=data_params['random_state']
+                    )
 
-for model_config in model_configs:
-    model_name = model_config["name"]
-    model_class = model_config["class"]
-    param_grid = model_config["params"]
-    
-    logger.info(f"Training and evaluating model: {model_name}")
+                    # Train-test split (80-20)
+                    split_idx = int(0.8 * data_params['n_samples'])
+                    x_train, x_test = x[:split_idx], x[split_idx:]
+                    y_train, y_test = y[:split_idx], y[split_idx:]
 
-    CV_config = []
-    dynamic_combinations = model_config["dynamic_params"]
-    n_conf_test = len(dynamic_combinations)
-    best_model_conf[model_name] = [[] for _ in range(n_conf_test)]
-    metric_conf[model_name] = np.zeros((n_conf_test, n_simus))
-   
-    
-    k_conf = 0
-    # Iterate over dynamic parameter combinations
-    for dynamic_params in dynamic_combinations:
-        k_conf += 1
-        logger.info(f" * Configuration {k_conf}/{len(dynamic_combinations)} for {model_name}")
+                    # Compute class weights for training data
+                    cw_train = np.ones(len(y_train))
 
-        # Update dynamic parameters for MLPBayesBinW
-        if model_name == "MLPBayesBinW":
-            No, NnBase, tActBase, tActSalida, pDOent, pDOocu, nBatch, nEpoch = dynamic_params
-            
-            # Generate the corresponding dynamic parameters
-            nnLayer = (NnBase, ) # tuple([s_NnBase[0] for _ in range(s_No[0])])  # Example: fixed layer sizes
-            prob_do = [pDOent] + [pDOocu]
-            tAct = [tActBase, tActSalida]
-            
-            # Create a base config from the model's param_grid
-            config = param_grid.copy()  # Start with the base configuration
-    
-            # Update the config with dynamic values
-            updated_config = config.copy()
-            updated_config.update({
-                "layers_size": nnLayer,
-                "drop_out": prob_do,
-                "activations": tAct,
-                'n_epoch': nEpoch,
-                'n_batch': nBatch,
-            })
-            
-        elif model_name == "LSEnsemble":
-            alpha, beta, Q_RB_S, Q_RB_C, num_experts, hidden_size, drop_out, n_batch, n_epoch = dynamic_params
-            # Create a base config from the model's param_grid
-            config = param_grid.copy()  # Start with the base configuration
-    
-            # Update the config with dynamic values
-            updated_config = config.copy()
-            updated_config.update({
-                "alpha": alpha,
-                "beta": beta,
-                "Q_RB_S": Q_RB_S,
-                "Q_RB_C": Q_RB_C,
-                'num_experts': num_experts,
-                'hidden_size': hidden_size,
-                'drop_out': drop_out,
-                'n_batch': n_batch,
-                'n_epoch': n_epoch,
-                'input_size': input_size
-            })
-        
-        # Append the updated config to the output list
-        CV_config.append(updated_config)
-    
-    # Now proceed with the model training and evaluation logic
-    best_metric_conf[model_name] = 0
-    k_conf = 0 
-    for cv_config in CV_config:
-        for k_simu in range(n_simus):
-            logger.info(f"    + Realization {k_simu+1}/{n_simus} for configuration {k_conf+1}/{len(dynamic_combinations)}")
-            
-            model = model_class(**cv_config)
-            
-            # Train the model
-            model.fit(x_train, y_train, sample_weight=cw_train)
-            
-            # Evaluate the model
-            ye_test = model.predict(x_test)
-            CM = confusion_matrix(y_test, ye_test)
-            metric = balanced_accuracy_score(y_test, ye_test)
-            metric_conf[model_name][k_conf, k_simu] = metric
-            
-            if metric > best_metric_overall:
-                best_metric_overall = metric
-                best_model_overall = [model, cv_config, metric, CM]
-                logger.info(f'Best configuration overall: {cv_config}')
-                logger.info(f'Best metric overall: {best_metric_overall:.5f}')
-                
-        
-        # Compute the averaged metric for this configuration after all simulations
-        avg_metric_conf = np.mean(metric_conf[model_name][k_conf, :])
-        
-        # Update best metric and model for the current configuration
-        if avg_metric_conf > best_metric_conf[model_name]:
-            best_metric_conf[model_name] = avg_metric_conf
-            best_model_conf[model_name][k_conf] = [model, cv_config, avg_metric_conf, CM]
-            logger.info(f'Best configuration conf: {cv_config}')
-            logger.info(f'Best metric conf: {avg_metric_conf:.5f}')
-            logger.info(f'Best CM conf: {CM}')
-        
-        k_conf += 1
+                    # Ensure input_size matches data features
+                    input_size = x_train.shape[1]
+
+                    for model_config in model_configs:
+                        model_name = model_config['name']
+                        model_class = model_config['class']
+                        param_grid = model_config['params']
+                        CV_config = []
+                        dynamic_combinations = model_config['dynamic_params']
+                        n_conf_test = len(dynamic_combinations)
+                        metric_conf = np.zeros((n_conf_test, 3))
+                        k_conf = 0
+
+                        for dynamic_params in dynamic_combinations:
+                            k_conf += 1
+                            if model_name == 'MLPBayesBinW':
+                                No, NnBase, tActBase, tActSalida, pDOent, pDOocu, nBatch, nEpoch = dynamic_params
+                                nnLayer = (NnBase, )
+                                prob_do = [pDOent] + [pDOocu]
+                                tAct = [tActBase, tActSalida]
+                                config = param_grid.copy()
+                                updated_config = config.copy()
+                                updated_config.update({
+                                    'layers_size': nnLayer,
+                                    'drop_out': prob_do,
+                                    'activations': tAct,
+                                    'n_epoch': nEpoch,
+                                    'n_batch': nBatch,
+                                })
+                            elif model_name == 'LSEnsemble':
+                                alpha, beta, Q_RB_S, Q_RB_C, num_experts, hidden_size, drop_out, n_batch, n_epoch = dynamic_params
+                                config = param_grid.copy()
+                                updated_config = config.copy()
+                                updated_config.update({
+                                    'alpha': alpha,
+                                    'beta': beta,
+                                    'Q_RB_S': Q_RB_S,
+                                    'Q_RB_C': Q_RB_C,
+                                    'num_experts': num_experts,
+                                    'hidden_size': hidden_size,
+                                    'drop_out': drop_out,
+                                    'n_batch': n_batch,
+                                    'n_epoch': n_epoch,
+                                    'input_size': input_size
+                                })
+                            CV_config.append(updated_config)
+
+                        k_conf = 0
+                        for cv_config in CV_config:
+                            for k_simu in range(n_simus):
+                                start_time = time.time()
+                                model = model_class(**cv_config)
+                                logger.info(f'Running model: {model_name} with parameters: {cv_config}')
+                                model.fit(x_train, y_train, sample_weight=cw_train)
+                                ye_test = model.predict(x_test)
+                                end_time = time.time()
+                                time_taken = end_time - start_time
+                                CM = confusion_matrix(y_test, ye_test)
+                                metric = balanced_accuracy_score(y_test, ye_test)
+                                accuracy = np.mean(ye_test == y_test)
+                                metric_conf[k_conf, k_simu] = metric
+
+                                # Log current model performance
+                                logger.info(f'Current model: {model_name} with parameters: {cv_config}, Metric: {metric:.5f}, Accuracy: {accuracy:.5f}, Time taken: {time_taken:.2f} seconds')
+
+                                # Update best_model_overall during model evaluation
+                                if metric > best_model_overall[2]:
+                                    best_model_overall = [model, cv_config, metric, CM]
+                                    logger.info(f'New best configuration overall: {cv_config}')
+                                    logger.info(f'New best metric overall: {best_model_overall[2]:.5f}')
+
+                                writer.writerow({
+                                    'data_params': data_params,
+                                    'model_name': model_name,
+                                    'params': cv_config,
+                                    'metric': metric,
+                                    'confusion_matrix': CM.tolist(),
+                                    'accuracy': accuracy,
+                                    'time_taken': time_taken
+                                })
+
+                            k_conf += 1
 
 # Report best model and performance
 logger.info(f"Best overall model: {best_model_overall[0].__class__.__name__}")
+logger.info(f"Best overall configuration: {best_model_overall[1]}")
+logger.info(f"Best overall metric: {best_model_overall[2]:.5f}")
 
 for model_config in model_configs:
     model_name = model_config["name"]
@@ -329,12 +348,10 @@ for model_config in model_configs:
 
 if model_selection == "ind":
     saved_model = best_model_overall
-
 elif model_selection == "conf":
     for model_config in model_configs:
         model_name = model_config["name"]
         idx_best = np.argmax(np.mean(metric_conf[model_name], axis=1))
         saved_model = best_model_conf[model_name][idx_best]
-        
 else:
     raise TypeError('Unexpected value for "model_selection"')

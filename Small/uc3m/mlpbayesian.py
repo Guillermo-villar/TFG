@@ -14,6 +14,7 @@ import random
 #------------------------------------------------------------------------------
 import numpy as np
 from scipy import special
+import sklearn
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 #from sklearn.metrics import confusion_matrix

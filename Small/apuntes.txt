@@ -1,0 +1,10 @@
+LSEnsemble
+
+Hay muchas cosas q comentar
+
+Por ejemplo, weights es clave. Todo el estudio de desbalances (Y mas adelante habria q entrar en estrategias)
+Es absolutamente relativo a los desbalances q tengas. El estudio se tiene que ajustar del todo a los IR que se tengan!!
+
+Los runs iterativos por favor!! Hay q hacer un estudio de iteraciones. Como? Q es mejor? 
+
+Ya tengo alguna idea..
