@@ -944,22 +944,9 @@ class LSEnsemble(nn.Module):
         Q_RB_C = self.Q_RB_C
         Q_RB_S = self.Q_RB_S
         
-        # Q_tr = self.QC * self.QP_tr # Commented (Verified) 
-        
-        QR_tr_expr = 2
-        if QR_tr_expr == 1:
-            # QR_tr is the inverse of the product of Q_RB_C and Q_RB_S
-            QR_tr = QP_tr / (Q_RB_C * Q_RB_S)
-        elif QR_tr_expr == 2: # Best case
-            # QR_tr is the average of the inverses of Q_RB_C and Q_RB_S
-            QR_tr = 1*QP_tr * ((Q_RB_S + Q_RB_C) / (Q_RB_C * Q_RB_S))
-        elif QR_tr_expr == 3:
-            # QR_tr is half the average of the inverses of Q_RB_C and Q_RB_S
-            QR_tr = 0.5 * QP_tr * ((Q_RB_S + Q_RB_C) / (Q_RB_C * Q_RB_S))
-        elif QR_tr_expr == 4: # Second Place. Bacc = 0.85672
-            # QR_tr is the geometric average of the inverses of Q_RB_C and Q_RB_S
-            QR_tr = QP_tr / np.sqrt(Q_RB_C * Q_RB_S)
-               
+        QR_tr = max(1, QP_tr / (Q_RB_C * Q_RB_S))
+        # QR_tr = QP_tr / (Q_RB_C * Q_RB_S)
+
         # Get the averaged expert predictions (o_pred)
         o_pred = self.forward(x)
     
