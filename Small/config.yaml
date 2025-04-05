@@ -1,0 +1,63 @@
+# Simple configuration file for LSEnsemble testing
+
+# Data generation parameters
+data:
+  # Whether to generate new data (true) or use existing CSV (false)
+  generate_new: true
+  
+  # Single dataset file path (used when generate_new is true)
+  dataset_file: "./datasets/synthetic/synth_dataset.csv"
+  
+  # External dataset paths (used when generate_new is false)
+  external_dataset: "./datasets/external/synth_dataset.csv"
+  
+  # Parameters for synthetic data generation (used when generate_new is true)
+  params:
+    n_samples: 6000
+    n_features: 20
+    n_informative: 15
+    n_redundant: 5
+    n_classes: 2
+    weights: [0.95, 0.05]  # Class weight distribution
+    test_size: 0.2
+    random_state: 42
+
+# Model configuration parameters
+model:
+  # How to select the model: best individual model ('ind') or best configuration ('conf')
+  selection_method: "conf"
+  n_simulations: 1  # Number of simulations per configuration
+  
+  # MLPBayes parameters
+  mlpbayes:
+    costeN: 1
+    costeP: 1
+    s_No: [1]
+    s_NnBase: [20, 30]
+    s_pDOent: [0.0, 0.1]
+    s_pDOocu: [0.0, 0.1]
+    s_tActBase: ["tanh", "relu"]
+    s_tActSalida: ["identity"]
+    s_nBatch: [128, 256]
+    s_nEpoch: [100, 200]
+  
+  # LSEnsemble parameters
+  lsensemble:
+    alpha: [0.0, 0.05, 0.1]
+    beta: [0.0, 0.05, 0.1]
+    Q_RB_C: [2.0, 5.0]
+    Q_RB_S: [1, 2, 5]
+    num_experts: [21, 31]
+    hidden_size: [30, 40]
+    drop_out: [0, 0.1]
+    n_batch: [128, 256]
+    n_epoch: [50, 100]
+    lbfgs: false
+    mode: "random"
+    activation_fn: "relu"
+    loss_fn: "F1"
+
+# Output configuration
+output:
+  results_file: "./datasets/results/test_results.csv"
+  log_level: "INFO"
