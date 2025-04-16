@@ -5,6 +5,7 @@ import sys
 import yaml
 import logging
 import importlib.util
+import signal
 
 # Simple script to run LSEnsemble tests with synthetic data
 # Setup basic logging
@@ -61,7 +62,16 @@ def ensure_dir_exists(file_path):
     if directory and not os.path.exists(directory):
         os.makedirs(directory)
 
+def signal_handler(sig, frame):
+    """Handle Ctrl+C to ensure clean shutdown"""
+    logger.info("\nProcess interrupted by user. Shutting down gracefully...")
+    logger.info("Any completed model runs have been saved to the results file.")
+    sys.exit(0)
+
 def main():
+    # Set up signal handler for graceful interruption
+    signal.signal(signal.SIGINT, signal_handler)
+
     # Get script directory and config file path
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, "config.yaml")
@@ -153,11 +163,17 @@ def main():
     logger.info(f"Using test_size: {test_size} (will use {int((1-test_size)*100)}% for training, {int(test_size*100)}% for testing)")
     
     # Run test_LSEnsemble with the dataset path, test_size and dataset parameters
-    results = test_module.run_test_from_csv(
-        dataset_path, test_size, model_config, output_config, dataset_params
-    )
-    
-    logger.info(f"Testing completed, results saved to {output_config['csv_file']}")
+    try:
+        results = test_module.run_test_from_csv(
+            dataset_path, test_size, model_config, output_config, dataset_params
+        )
+        logger.info(f"Testing completed, results saved to {output_config['csv_file']}")
+    except KeyboardInterrupt:
+        logger.info("\nProcess interrupted by user.")
+        logger.info("Results for completed model runs have been saved.")
+    except Exception as e:
+        logger.error(f"Error during testing: {e}")
+        logger.info("Partial results may have been saved.")
     
     return results
 

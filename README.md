@@ -45,3 +45,20 @@ Label switching, SMOTE, QRBC (a 0, pero está).
 
 
 labelswitching (nuevo) sacar parámetro de trabajadores mirar data_loading (yo creo q no aplica mucho), extraer al yaml  
+
+
+COSAS IR: 
+
+Desbalanceo de costes, (SMOTE, random undersampling, ). Puedo usar modelos simples para encontrar lo mejor
+
+Paquete de learners, IR
+
+(costes: coste fijo (mayor en la minoritaria), coste variables al error (cost dependent learning)
+(ensembles : numero de cosas, tipo de aprendiz, otros aprendizes distintos) 
+
+
+MULTICLASE?? - 
+
+Gaussiano para la generación de datasets
+
+Paralelización
