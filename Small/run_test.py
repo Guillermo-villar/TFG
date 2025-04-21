@@ -101,7 +101,8 @@ def main():
     
     output_config = {
         "csv_file": results_file_path,
-        "log_level": config["output"]["log_level"]
+        "log_level": config["output"]["log_level"],
+        "max_seconds_per_model": config["model"].get("max_seconds_per_model", None),
     }
     
     # Set dataset path (single CSV file)
@@ -114,7 +115,7 @@ def main():
         
         # Resolve path in data config
         dataset_file = resolve_path(script_dir, config["data"]["dataset_file"])
-        ensure_dir_exists(dataset_file)
+        ensure_dir_exists(os.path.dirname(dataset_file))  # <-- fix here
         
         # Save the dataset parameters for logging
         dataset_params = config["data"]["params"].copy()

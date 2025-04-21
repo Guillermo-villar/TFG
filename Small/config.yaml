@@ -20,13 +20,14 @@ data:
     n_classes: 2
     weights: [0.95, 0.05]  # Class weight distribution
     test_size: 0.2
-    random_state: 42
+    random_state: 41
 
 # Model configuration parameters
 model:
   # How to select the model: best individual model ('ind') or best configuration ('conf')
   selection_method: "conf"
   n_simulations: 1  # Number of simulations per configuration
+  max_seconds_per_model: 300  # Maximum seconds per model run (example: 5 minutes)
   
   # MLPBayes parameters
   mlpbayes:

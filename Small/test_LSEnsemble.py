@@ -6,6 +6,7 @@ import time
 import os
 import numpy as np
 import pandas as pd
+import signal
 # Combine all combinations of dynamic parameters
 from itertools import product
 from sklearn.metrics import balanced_accuracy_score, confusion_matrix
@@ -16,6 +17,12 @@ from uc3m.labelswitching import LSEnsemble
 # INITIALIZE LOGGER
 # -----------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
+
+class TimeoutException(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutException
 
 def setup_logging(log_level="INFO"):
     """Set up logging with the specified level"""
@@ -138,6 +145,11 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
     n_simus = model_config.get("n_simus", 1)
     model_selection = model_config.get("model_selection", "conf")
 
+    max_seconds_per_model = output_config.get("max_seconds_per_model", 300)
+
+    # Before the model grid search loops:
+    signal.signal(signal.SIGALRM, timeout_handler)
+
     # Stage 1: Find best runner (best config) for LSEnsemble, ignoring alpha/beta/qrbc/qrbs
     best_runner = None
     best_metric = -np.inf
@@ -173,28 +185,55 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
         metric_vals = []
         for k_simu in range(n_simus):
             logger.info(f"Runner {idx+1}/{total_runner} Simu {k_simu+1}/{n_simus}: LSEnsemble with parameters: {config}")
-            model = LSEnsemble(**config)
-            model.fit(x_train, y_train, sample_weight=cw_train)
-            ye_test = model.predict(x_test)
-            metric = balanced_accuracy_score(y_test, ye_test)
-            metric_vals.append(metric)
-            # Write to CSV for each runner config (optional, for debugging)
-            if writer is not None:
-                writer.writerow({
-                    'data_params': str(data_stats.get('data_params', {})),
-                    'model_name': 'LSEnsemble',
-                    'params': str(config),
-                    'metric': metric,
-                    'confusion_matrix': '',  # Not available here
-                    'accuracy': np.mean(ye_test == y_test),
-                    'time_taken': '',  # Not measured here
-                    'label_switching_used': (alpha > 0) or (beta > 0),
-                    'num_labels_switched': 0
-                })
-                if csvfile is not None:
-                    csvfile.flush()
-                    os.fsync(csvfile.fileno())
-                logger.info(f"Wrote runner config result to CSV: {config}")
+            try:
+                signal.alarm(max_seconds_per_model)
+                start_time = time.time()
+                model = LSEnsemble(**config)
+                model.fit(x_train, y_train, sample_weight=cw_train)
+                ye_test = model.predict(x_test)
+                end_time = time.time()
+                signal.alarm(0)
+                time_taken = end_time - start_time
+                CM = confusion_matrix(y_test, ye_test)
+                metric = balanced_accuracy_score(y_test, ye_test)
+                accuracy = np.mean(ye_test == y_test)
+                metric_vals.append(metric)
+                # Write to CSV for each runner config (optional, for debugging)
+                if writer is not None:
+                    writer.writerow({
+                        'data_params': str(data_stats.get('data_params', {})),
+                        'model_name': 'LSEnsemble',
+                        'params': str(config),
+                        'metric': metric,
+                        'confusion_matrix': str(CM.tolist()),
+                        'accuracy': accuracy,
+                        'time_taken': time_taken,
+                        'label_switching_used': (alpha > 0) or (beta > 0),
+                        'num_labels_switched': 0
+                    })
+                    if csvfile is not None:
+                        csvfile.flush()
+                        os.fsync(csvfile.fileno())
+                    logger.info(f"Wrote runner config result to CSV: {config}")
+            except TimeoutException:
+                signal.alarm(0)
+                logger.warning(f"Timeout: Model run exceeded {max_seconds_per_model} seconds for config: {config}. Skipping.")
+                if writer is not None:
+                    writer.writerow({
+                        'data_params': str(data_stats.get('data_params', {})),
+                        'model_name': 'LSEnsemble',
+                        'params': str(config),
+                        'metric': 'timeout',
+                        'confusion_matrix': '',
+                        'accuracy': '',
+                        'time_taken': f'>{max_seconds_per_model}',
+                        'label_switching_used': (alpha > 0) or (beta > 0),
+                        'num_labels_switched': 0
+                    })
+                    if csvfile is not None:
+                        csvfile.flush()
+                        os.fsync(csvfile.fileno())
+                continue
         avg_metric = np.mean(metric_vals)
         if avg_metric > best_metric:
             best_metric = avg_metric
@@ -222,35 +261,57 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                     metric_vals = []
                     for k_simu in range(n_simus):
                         logger.info(f"LS {lse_idx}/{total_lse} Simu {k_simu+1}/{n_simus}: LSEnsemble with parameters: {config}")
-                        start_time = time.time()
-                        model = LSEnsemble(**config)
-                        model.fit(x_train, y_train, sample_weight=cw_train)
-                        ye_test = model.predict(x_test)
-                        end_time = time.time()
-                        time_taken = end_time - start_time
-                        CM = confusion_matrix(y_test, ye_test)
-                        metric = balanced_accuracy_score(y_test, ye_test)
-                        accuracy = np.mean(ye_test == y_test)
-                        metric_vals.append(metric)
-                        label_switching_used = (alpha > 0) or (beta > 0)
-                        num_labels_switched = 0  # You can implement logic if available
-                        if writer is not None:
-                            writer.writerow({
-                                'data_params': str(data_stats.get('data_params', {})),
-                                'model_name': 'LSEnsemble',
-                                'params': str(config),
-                                'metric': metric,
-                                'confusion_matrix': str(CM.tolist()),
-                                'accuracy': accuracy,
-                                'time_taken': time_taken,
-                                'label_switching_used': label_switching_used,
-                                'num_labels_switched': num_labels_switched
-                            })
-                            if csvfile is not None:
-                                csvfile.flush()
-                                os.fsync(csvfile.fileno())
-                            logger.info(f"Wrote LS config result to CSV: {config}")
-                        logger.info(f"LS {lse_idx}/{total_lse} Simu {k_simu+1}/{n_simus}: Metric: {metric:.5f}, Accuracy: {accuracy:.5f}, Time: {time_taken:.2f}s")
+                        try:
+                            signal.alarm(max_seconds_per_model)
+                            start_time = time.time()
+                            model = LSEnsemble(**config)
+                            model.fit(x_train, y_train, sample_weight=cw_train)
+                            ye_test = model.predict(x_test)
+                            end_time = time.time()
+                            signal.alarm(0)
+                            time_taken = end_time - start_time
+                            CM = confusion_matrix(y_test, ye_test)
+                            metric = balanced_accuracy_score(y_test, ye_test)
+                            accuracy = np.mean(ye_test == y_test)
+                            metric_vals.append(metric)
+                            label_switching_used = (alpha > 0) or (beta > 0)
+                            num_labels_switched = 0
+                            if writer is not None:
+                                writer.writerow({
+                                    'data_params': str(data_stats.get('data_params', {})),
+                                    'model_name': 'LSEnsemble',
+                                    'params': str(config),
+                                    'metric': metric,
+                                    'confusion_matrix': str(CM.tolist()),
+                                    'accuracy': accuracy,
+                                    'time_taken': time_taken,
+                                    'label_switching_used': label_switching_used,
+                                    'num_labels_switched': num_labels_switched
+                                })
+                                if csvfile is not None:
+                                    csvfile.flush()
+                                    os.fsync(csvfile.fileno())
+                                logger.info(f"Wrote LS config result to CSV: {config}")
+                            logger.info(f"LS {lse_idx}/{total_lse} Simu {k_simu+1}/{n_simus}: Metric: {metric:.5f}, Accuracy: {accuracy:.5f}, Time: {time_taken:.2f}s")
+                        except TimeoutException:
+                            signal.alarm(0)
+                            logger.warning(f"Timeout: Model run exceeded {max_seconds_per_model} seconds for config: {config}. Skipping.")
+                            if writer is not None:
+                                writer.writerow({
+                                    'data_params': str(data_stats.get('data_params', {})),
+                                    'model_name': 'LSEnsemble',
+                                    'params': str(config),
+                                    'metric': 'timeout',
+                                    'confusion_matrix': '',
+                                    'accuracy': '',
+                                    'time_taken': f'>{max_seconds_per_model}',
+                                    'label_switching_used': (alpha > 0) or (beta > 0),
+                                    'num_labels_switched': 0
+                                })
+                                if csvfile is not None:
+                                    csvfile.flush()
+                                    os.fsync(csvfile.fileno())
+                            continue
                     avg_metric = np.mean(metric_vals)
                     results.append((config, avg_metric))
 
