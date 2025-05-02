@@ -6,6 +6,8 @@ import yaml
 import logging
 import importlib.util
 import signal
+import json
+import datetime
 
 # Simple script to run LSEnsemble tests with synthetic data
 # Setup basic logging
@@ -15,6 +17,8 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger(__name__)
+
+BEST_RUNNER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "best_runner.txt")
 
 def load_modules():
     """Import required modules"""
@@ -68,9 +72,67 @@ def signal_handler(sig, frame):
     logger.info("Any completed model runs have been saved to the results file.")
     sys.exit(0)
 
+def ask_use_previous_best():
+    if os.path.exists(BEST_RUNNER_FILE):
+        resp = input("¿Quieres usar el último best_runner guardado de la fase 1? (s/n): ").strip().lower()
+        return resp == "s"
+    return False
+
+def backup_results_file(results_file_path):
+    if os.path.exists(results_file_path):
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = results_file_path.replace(
+            ".csv", f"_{timestamp}.csv"
+        )
+        os.rename(results_file_path, backup_path)
+        logger.info(f"Previous results file backed up as: {backup_path}")
+
+def create_timestamped_results_dir(base_results_path):
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_dir = os.path.dirname(base_results_path)
+    results_dir = os.path.join(base_dir, timestamp)
+    os.makedirs(results_dir, exist_ok=True)
+    return results_dir
+
+class TeeLogger:
+    def __init__(self, log_file_path):
+        self.terminal = sys.__stdout__  # Use the original stdout, not sys.stdout
+        self.log = open(log_file_path, "w", buffering=1, encoding="utf-8")
+    def write(self, message):
+        # Write to terminal and file, always flush after write
+        if message:
+            try:
+                self.terminal.write(message)
+                self.terminal.flush()
+            except Exception:
+                pass
+            try:
+                self.log.write(message)
+                self.log.flush()
+            except Exception:
+                pass
+    def flush(self):
+        try:
+            self.terminal.flush()
+        except Exception:
+            pass
+        try:
+            self.log.flush()
+        except Exception:
+            pass
+    def close(self):
+        try:
+            self.log.flush()
+            self.log.close()
+        except Exception:
+            pass
+
 def main():
     # Set up signal handler for graceful interruption
     signal.signal(signal.SIGINT, signal_handler)
+
+    # Initialize results to ensure it's always defined
+    results = None
 
     # Get script directory and config file path
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -92,13 +154,24 @@ def main():
         "model_selection": config["model"]["selection_method"],
         "n_simus": config["model"]["n_simulations"],
         "mlpbayes": config["model"]["mlpbayes"],
-        "lsensemble": config["model"]["lsensemble"]
+        "lsensemble": {
+            "stage1": config["model"]["lsensemble"]["stage1"],
+            "stage2": config["model"]["lsensemble"]["stage2"]
+        }
     }
     
     # Create output configuration and ensure directory exists
-    results_file_path = resolve_path(script_dir, config["output"]["results_file"])
+    base_results_file_path = resolve_path(script_dir, config["output"]["results_file"])
+    results_dir = create_timestamped_results_dir(base_results_file_path)
+    results_file_path = os.path.join(results_dir, "test_results.csv")
     ensure_dir_exists(results_file_path)
-    
+
+    # Redirect stdout to both terminal and log file
+    log_txt_path = os.path.join(results_dir, "terminal_output.txt")
+    tee_logger = TeeLogger(log_txt_path)
+    sys.stdout = tee_logger
+    sys.stderr = tee_logger
+
     output_config = {
         "csv_file": results_file_path,
         "log_level": config["output"]["log_level"],
@@ -163,10 +236,14 @@ def main():
     logger.info(f"Starting model training and evaluation on dataset: {dataset_path}")
     logger.info(f"Using test_size: {test_size} (will use {int((1-test_size)*100)}% for training, {int(test_size*100)}% for testing)")
     
+    # Preguntar si se quiere usar el último best_runner guardado
+    use_previous_best = ask_use_previous_best()
+
     # Run test_LSEnsemble with the dataset path, test_size and dataset parameters
     try:
         results = test_module.run_test_from_csv(
-            dataset_path, test_size, model_config, output_config, dataset_params
+            dataset_path, test_size, model_config, output_config, dataset_params,
+            use_previous_best_runner=use_previous_best, best_runner_file=BEST_RUNNER_FILE
         )
         logger.info(f"Testing completed, results saved to {output_config['csv_file']}")
     except KeyboardInterrupt:
@@ -175,6 +252,10 @@ def main():
     except Exception as e:
         logger.error(f"Error during testing: {e}")
         logger.info("Partial results may have been saved.")
+    finally:
+        sys.stdout = tee_logger.terminal
+        sys.stderr = tee_logger.terminal
+        tee_logger.close()
     
     return results
 

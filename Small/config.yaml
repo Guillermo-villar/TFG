@@ -28,6 +28,9 @@ model:
   selection_method: "conf"
   n_simulations: 1  # Number of simulations per configuration
   max_seconds_per_model: 300  # Maximum seconds per model run (example: 5 minutes)
+  # Metrics configuration
+
+
   
   # MLPBayes parameters
   mlpbayes:
@@ -44,19 +47,22 @@ model:
   
   # LSEnsemble parameters
   lsensemble:
-    alpha: [0.0, 0.05, 0.1]
-    beta: [0.0, 0.05, 0.1]
-    Q_RB_C: [2.0, 5.0]
-    Q_RB_S: [1, 2, 5]
-    num_experts: [21, 31]
-    hidden_size: [30, 40]
-    drop_out: [0, 0.1]
-    n_batch: [128, 256]
-    n_epoch: [50, 100]
-    lbfgs: false
-    mode: "random"
-    activation_fn: "relu"
-    loss_fn: "F1"
+    stage1:
+      num_experts: [21, 31]
+      hidden_size: [30, 40]
+      drop_out: [0, 0.1]
+      n_batch: [128, 256]
+      n_epoch: [50, 100]
+      lbfgs: false
+      mode: "random"
+      activation_fn: "relu"
+      loss_fn: "custom"   # Opciones: "custom", "F1", "balanced_accuracy"
+    stage2:
+      # alpha is relatively high. if alpha< 0.15, no items are switched
+      alpha: [0.15, 0.2]
+      beta: [0.15, 0.25, 0.4]
+      Q_RB_C: [2.0, 5.0]
+      Q_RB_S: [1, 2, 5]
 
 # Output configuration
 output:
