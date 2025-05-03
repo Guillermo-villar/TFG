@@ -4,21 +4,18 @@ import os
 import sys
 import yaml
 import logging
+from logging.handlers import RotatingFileHandler
 import importlib.util
 import signal
 import json
 import datetime
 
 # Simple script to run LSEnsemble tests with synthetic data
-# Setup basic logging
-logging.basicConfig(
-    format="%(asctime)-15s %(levelname)s: %(message)s",
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-logger = logging.getLogger(__name__)
+# Setup basic logging - crearemos los handlers después de determinar el directorio de resultados
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
-BEST_RUNNER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "best_runner.txt")
+BEST_RUNNER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "best_runner.json")
 
 def load_modules():
     """Import required modules"""
@@ -92,40 +89,35 @@ def create_timestamped_results_dir(base_results_path):
     base_dir = os.path.dirname(base_results_path)
     results_dir = os.path.join(base_dir, timestamp)
     os.makedirs(results_dir, exist_ok=True)
-    return results_dir
+    return results_dir, timestamp
 
-class TeeLogger:
-    def __init__(self, log_file_path):
-        self.terminal = sys.__stdout__  # Use the original stdout, not sys.stdout
-        self.log = open(log_file_path, "w", buffering=1, encoding="utf-8")
-    def write(self, message):
-        # Write to terminal and file, always flush after write
-        if message:
-            try:
-                self.terminal.write(message)
-                self.terminal.flush()
-            except Exception:
-                pass
-            try:
-                self.log.write(message)
-                self.log.flush()
-            except Exception:
-                pass
-    def flush(self):
-        try:
-            self.terminal.flush()
-        except Exception:
-            pass
-        try:
-            self.log.flush()
-        except Exception:
-            pass
-    def close(self):
-        try:
-            self.log.flush()
-            self.log.close()
-        except Exception:
-            pass
+def setup_logging(log_file_path, log_level="INFO"):
+    """Configure logging to both console and file"""
+    logger = logging.getLogger()
+    logger.setLevel(getattr(logging, log_level))
+    
+    # Crear formato consistente para ambos handlers
+    formatter = logging.Formatter("%(asctime)-15s %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    
+    # Eliminar handlers existentes
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Handler para consola
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    # Handler para archivo
+    file_handler = logging.FileHandler(log_file_path, mode='w', encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    
+    # Silenciar logging de matplotlib
+    mpl_logger = logging.getLogger('matplotlib')
+    mpl_logger.setLevel(logging.WARNING)
+    
+    logger.info(f"Logs serán guardados en: {log_file_path}")
 
 def main():
     # Set up signal handler for graceful interruption
@@ -138,12 +130,19 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, "config.yaml")
     
+    # Configuración inicial de logging básico (solo consola)
+    logging.basicConfig(
+        format="%(asctime)-15s %(levelname)s: %(message)s",
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    
     # Load configuration
     try:
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
     except Exception as e:
-        logger.error(f"Failed to load config from {config_path}: {e}")
+        logging.error(f"Failed to load config from {config_path}: {e}")
         sys.exit(1)
     
     # Import required modules
@@ -162,15 +161,16 @@ def main():
     
     # Create output configuration and ensure directory exists
     base_results_file_path = resolve_path(script_dir, config["output"]["results_file"])
-    results_dir = create_timestamped_results_dir(base_results_file_path)
+    results_dir, timestamp = create_timestamped_results_dir(base_results_file_path)
     results_file_path = os.path.join(results_dir, "test_results.csv")
     ensure_dir_exists(results_file_path)
 
-    # Redirect stdout to both terminal and log file
+    # Configurar logging para guardar en archivo y mostrar en consola
     log_txt_path = os.path.join(results_dir, "terminal_output.txt")
-    tee_logger = TeeLogger(log_txt_path)
-    sys.stdout = tee_logger
-    sys.stderr = tee_logger
+    setup_logging(log_txt_path, config["output"]["log_level"])
+    
+    # Mensaje inicial para verificar que el logging funciona
+    logger.info(f"Iniciando ejecución de LSEnsemble tests... [{timestamp}]")
 
     output_config = {
         "csv_file": results_file_path,
@@ -252,10 +252,9 @@ def main():
     except Exception as e:
         logger.error(f"Error during testing: {e}")
         logger.info("Partial results may have been saved.")
-    finally:
-        sys.stdout = tee_logger.terminal
-        sys.stderr = tee_logger.terminal
-        tee_logger.close()
+    
+    # Final log message that will also appear in the file
+    logger.info(f"Ejecución finalizada. Logs guardados en: {log_txt_path}")
     
     return results
 
