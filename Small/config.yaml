@@ -57,10 +57,11 @@ model:
       mode: "random"
       activation_fn: "relu"
       loss_fn: "custom"   # Opciones: "custom", "F1", "balanced_accuracy"
+      rb_each_expert: false  # Control whether each expert gets a unique SMOTE dataset
     stage2:
       # alpha is relatively high. if alpha< 0.15, no items are switched
-      alpha: [0.15, 0.2]
-      beta: [0.15, 0.25, 0.4]
+      alpha: [0.15, 0.2, 0.35]  # Corregido el punto decimal
+      beta: [0, 0.1]
       Q_RB_C: [2.0, 5.0]
       Q_RB_S: [1, 2, 5]
 

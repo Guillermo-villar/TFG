@@ -152,6 +152,10 @@ def label_switching(y, w=None, alphasw=0.0, betasw=0.0):
     Returns:
     - ysw: Labels after switching.
     - wsw: Updated sample weights after switching.
+    - pos_to_neg_count: Number of minority labels switched to majority (beta effect).
+    - neg_to_pos_count: Number of majority labels switched to minority (alpha effect).
+    - total_pos: Total number of positive labels in the original dataset.
+    - total_neg: Total number of negative labels in the original dataset.
     """
     # Initialize class weights if not provided
     if w is None:
@@ -162,10 +166,20 @@ def label_switching(y, w=None, alphasw=0.0, betasw=0.0):
 
     # Initialize sample weights based on the original labels
     wsw = np.where(y == -1, w[0], w[1])
+    
+    # Initialize counters
+    pos_to_neg_count = 0
+    neg_to_pos_count = 0
 
     # Find indices of each class
     idx1 = np.where(y == +1)[0]  # Minority class
-    l1 = len(idx1)
+    idx0 = np.where(y == -1)[0]  # Majority class
+    
+    # Store total counts of each class
+    total_pos = len(idx1)
+    total_neg = len(idx0)
+    
+    l1 = total_pos
     bet_1 = int(round(l1 * betasw))  # Number of switches from Minority to Majority
     bet_1 = min(bet_1, l1)  # Ensure bet_1 <= l1
     if bet_1 > 0:
@@ -173,9 +187,9 @@ def label_switching(y, w=None, alphasw=0.0, betasw=0.0):
         # Perform label switching for the minority class
         ysw[idx1_sw] = -1
         wsw[idx1_sw] = w[0]  # Update weights to majority class weight
+        pos_to_neg_count = bet_1
 
-    idx0 = np.where(y == -1)[0]  # Majority class
-    l0 = len(idx0)
+    l0 = total_neg
     alph_0 = int(round(l0 * alphasw))  # Number of switches from Majority to Minority
     alph_0 = min(alph_0, l0)  # Ensure alph_0 <= l0
     if alph_0 > 0:
@@ -183,8 +197,9 @@ def label_switching(y, w=None, alphasw=0.0, betasw=0.0):
         # Perform label switching for the majority class
         ysw[idx0_sw] = +1
         wsw[idx0_sw] = w[1]  # Update weights to minority class weight
+        neg_to_pos_count = alph_0
 
-    return ysw, wsw
+    return ysw, wsw, pos_to_neg_count, neg_to_pos_count, total_pos, total_neg
 
 def compute_weights(targets_train, RB = 1, IR = 1, mode = 'Normal'):
     # RB define la cantidad de reequilibrado final
@@ -701,6 +716,12 @@ class LSEnsemble(nn.Module):
     
         Q_RB_S = max(Q_RB_S, 1)
         sampling_strategy = min(Q_RB_S / QP_tr, 1.0)
+        
+        # Initialize counters for label switching
+        self.pos_to_neg_count = 0
+        self.neg_to_pos_count = 0
+        self.total_pos = 0
+        self.total_neg = 0
     
         def apply_smote(x_np, y_np, w_np):
             """
@@ -743,7 +764,18 @@ class LSEnsemble(nn.Module):
             w_RB_SW : torch.Tensor
                 Adjusted weights tensor for the expert.
             """
-            targets_sw, w_RB_SW = (y_RB, w_RB) if self.alpha == 0 and self.beta == 0 else label_switching(y_RB, w_RB, self.alpha, self.beta)
+            if self.alpha == 0 and self.beta == 0:
+                targets_sw, w_RB_SW = y_RB, w_RB
+                # Count positives and negatives even if not switching
+                self.total_pos += np.sum(y_RB == 1)
+                self.total_neg += np.sum(y_RB == -1)
+            else:
+                targets_sw, w_RB_SW, pos_to_neg, neg_to_pos, total_pos, total_neg = label_switching(y_RB, w_RB, self.alpha, self.beta)
+                self.pos_to_neg_count += pos_to_neg
+                self.neg_to_pos_count += neg_to_pos
+                self.total_pos += total_pos
+                self.total_neg += total_neg
+                
             targets_sw = torch.from_numpy(targets_sw).to(x.device)
             w_RB_SW = torch.from_numpy(w_RB_SW).to(x.device)
             y_RB_SW = torch.where(targets_sw > 0, (1 - 2 * self.beta), -(1 - 2 * self.alpha))
@@ -1076,4 +1108,4 @@ class LSEnsembleWrapper(BaseEstimator):
 
     def predict(self, X):
         with torch.no_grad():
-            return self.model.predict(X) 
+            return self.model.predict(X)

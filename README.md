@@ -66,3 +66,5 @@ Paralelización
 Mayo - 
 
 Después de aplicar analisis de datos, me he dado cuenta de que mis scores son malas, porque las clases minoritarias no se están gestionando bien. Estudio de Loss Function añadido como estrategia de lidiar con desbalanceos.
+
+Estoy trabajando con ensembles. APROVECHA COÑO

@@ -70,7 +70,9 @@ def run_test_from_csv(
     os.makedirs(os.path.dirname(csv_file) if os.path.dirname(csv_file) else '.', exist_ok=True)
     csv_columns = [
         'data_params', 'model_name', 'params', 'metric', 'confusion_matrix', 'accuracy', 'time_taken',
-        'label_switching_used', 'num_labels_switched', 'custom_metric', 'balanced_accuracy', 'minority_score'
+        'label_switching_used', 'num_labels_switched_pos_to_neg', 'total_pos_labels', 'pct_pos_switched',
+        'num_labels_switched_neg_to_pos', 'total_neg_labels', 'pct_neg_switched',
+        'custom_metric', 'balanced_accuracy', 'minority_score'
     ]
 
     # Open with immediate flush mode
@@ -157,8 +159,9 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
     mode = stage1.get("mode", "random")
     activation_fn = stage1.get("activation_fn", "relu")
     loss_fn = stage1.get("loss_fn", "F1")
+    rb_each_expert = stage1.get("rb_each_expert", False)  # Get rb_each_expert from config
 
-    # Stage 2 params (label switching/QRB)
+    # Stage 2 params - ALWAYS load these from the config file
     LS_alpha = stage2.get("alpha", [])
     LS_beta = stage2.get("beta", [])
     LS_Q_RB_C = stage2.get("Q_RB_C", [])
@@ -213,7 +216,8 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                 'drop_out': drop_out,
                 'n_batch': n_batch,
                 'n_epoch': n_epoch,
-                'input_size': data_stats['input_size']
+                'input_size': data_stats['input_size'],
+                'rb_each_expert': rb_each_expert  # Include the parameter in the model config
             }
             # Use default alpha/beta/qrbc/qrbs for runner selection (e.g. first value)
             #ALL set to "0" values for Fase 1
@@ -244,6 +248,15 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                     accuracy = np.mean(ye_test == y_test)
                     metric_vals.append(metric)
                     if writer is not None:
+                        # Calcular porcentajes de etiquetas cambiadas
+                        pos_switched = getattr(model, 'pos_to_neg_count', 0)
+                        neg_switched = getattr(model, 'neg_to_pos_count', 0)
+                        total_pos = getattr(model, 'total_pos', 1)  # Evitar división por cero
+                        total_neg = getattr(model, 'total_neg', 1)  # Evitar división por cero
+
+                        pct_pos_switched = (pos_switched / total_pos * 100) if total_pos > 0 else 0
+                        pct_neg_switched = (neg_switched / total_neg * 100) if total_neg > 0 else 0
+
                         writer.writerow({
                             'data_params': str(data_stats.get('data_params', {})),
                             'model_name': 'LSEnsemble',
@@ -253,7 +266,12 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                             'accuracy': accuracy,
                             'time_taken': time_taken,
                             'label_switching_used': (alpha > 0) or (beta > 0),
-                            'num_labels_switched': 0,
+                            'num_labels_switched_pos_to_neg': pos_switched,
+                            'total_pos_labels': total_pos,
+                            'pct_pos_switched': f"{pct_pos_switched:.2f}%",
+                            'num_labels_switched_neg_to_pos': neg_switched,
+                            'total_neg_labels': total_neg,
+                            'pct_neg_switched': f"{pct_neg_switched:.2f}%",
                             'custom_metric': metric if loss_fn.lower() == "custom" else "",
                             'balanced_accuracy': bac,
                             'minority_score': minority_score
@@ -275,7 +293,12 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                             'accuracy': '',
                             'time_taken': f'>{max_seconds_per_model}',
                             'label_switching_used': (alpha > 0) or (beta > 0),
-                            'num_labels_switched': 0,
+                            'num_labels_switched_pos_to_neg': 0,
+                            'total_pos_labels': 0,
+                            'pct_pos_switched': "0.00%",
+                            'num_labels_switched_neg_to_pos': 0,
+                            'total_neg_labels': 0,
+                            'pct_neg_switched': "0.00%",
                             'custom_metric': '',
                             'balanced_accuracy': '',
                             'minority_score': ''
@@ -334,7 +357,14 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                             accuracy = np.mean(ye_test == y_test)
                             metric_vals.append(metric)
                             label_switching_used = (alpha > 0) or (beta > 0)
-                            num_labels_switched = 0
+                            num_labels_switched_pos_to_neg = getattr(model, 'pos_to_neg_count', 0)
+                            num_labels_switched_neg_to_pos = getattr(model, 'neg_to_pos_count', 0)
+                            total_pos = getattr(model, 'total_pos', 1)  # Evitar división por cero
+                            total_neg = getattr(model, 'total_neg', 1)  # Evitar división por cero
+
+                            pct_pos_switched = (num_labels_switched_pos_to_neg / total_pos * 100) if total_pos > 0 else 0
+                            pct_neg_switched = (num_labels_switched_neg_to_pos / total_neg * 100) if total_neg > 0 else 0
+
                             if writer is not None:
                                 writer.writerow({
                                     'data_params': str(data_stats.get('data_params', {})),
@@ -345,7 +375,12 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                                     'accuracy': accuracy,
                                     'time_taken': time_taken,
                                     'label_switching_used': label_switching_used,
-                                    'num_labels_switched': num_labels_switched,
+                                    'num_labels_switched_pos_to_neg': num_labels_switched_pos_to_neg,
+                                    'total_pos_labels': total_pos,
+                                    'pct_pos_switched': f"{pct_pos_switched:.2f}%",
+                                    'num_labels_switched_neg_to_pos': num_labels_switched_neg_to_pos,
+                                    'total_neg_labels': total_neg,
+                                    'pct_neg_switched': f"{pct_neg_switched:.2f}%",
                                     'custom_metric': metric if loss_fn.lower() == "custom" else "",
                                     'balanced_accuracy': bac,
                                     'minority_score': minority_score
@@ -368,7 +403,12 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                                     'accuracy': '',
                                     'time_taken': f'>{max_seconds_per_model}',
                                     'label_switching_used': label_switching_used,
-                                    'num_labels_switched': num_labels_switched,
+                                    'num_labels_switched_pos_to_neg': 0,
+                                    'total_pos_labels': 0,
+                                    'pct_pos_switched': "0.00%",
+                                    'num_labels_switched_neg_to_pos': 0,
+                                    'total_neg_labels': 0,
+                                    'pct_neg_switched': "0.00%",
                                     'custom_metric': '',
                                     'balanced_accuracy': '',
                                     'minority_score': ''
@@ -380,7 +420,7 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                     avg_metric = np.mean(metric_vals)
                     results.append((config, avg_metric))
 
-    # Optionally, you can log the best found in this stage
+    # Al final busca el mejor resultado
     if results:
         best_config, best_metric = max(results, key=lambda x: x[1])
         logger.info(f"Best LSEnsemble config (with alpha/beta/qrbc/qrbs): {best_config}")
