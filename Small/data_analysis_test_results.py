@@ -66,9 +66,9 @@ except Exception as e:
     print(f"Error reading the CSV file: {e}")
     sys.exit(1)
 
-# Get timestamp for the plots directory to keep runs separate
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-plots_dir = os.path.join(script_dir, args.output_dir)
+# Get the directory containing the results file
+results_dir = os.path.dirname(os.path.abspath(file_path))
+plots_dir = os.path.join(results_dir, "plots")
 
 # Always clean previous plots directory
 if os.path.exists(plots_dir):

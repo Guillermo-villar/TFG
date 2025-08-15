@@ -159,7 +159,7 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
     mode = stage1.get("mode", "random")
     activation_fn = stage1.get("activation_fn", "relu")
     loss_fn = stage1.get("loss_fn", "F1")
-    rb_each_expert = stage1.get("rb_each_expert", False)  # Get rb_each_expert from config
+    rb_each_expert = stage1.get("rb_each_expert", True)  # This is read from config
 
     # Stage 2 params - ALWAYS load these from the config file
     LS_alpha = stage2.get("alpha", [])
