@@ -17,6 +17,48 @@ logger.setLevel(logging.INFO)
 
 BEST_RUNNER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "best_runner.json")
 
+def ask_user_level():
+    """Ask user to select capilaridad level (1-3)"""
+    print("\nSelect analysis level:")
+    print("1 - Basic (fast, few combinations)")
+    print("2 - Intermediate (balanced)")
+    print("3 - Advanced (exhaustive, many combinations)")
+    
+    while True:
+        try:
+            level = int(input("Enter level (1-3): "))
+            if level in [1, 2, 3]:
+                return level
+            else:
+                print("Please enter 1, 2, or 3")
+        except ValueError:
+            print("Please enter a valid number")
+        except KeyboardInterrupt:
+            print("\nOperation cancelled")
+            sys.exit(0)
+
+def build_config_from_level(base_config, level):
+    """Build model configuration based on selected level"""
+    level_config = base_config["capilaridad_levels"][level]
+    
+    model_config = {
+        "model_selection": base_config["model"]["selection_method"],
+        "n_simus": level_config["n_simulations"],
+        "mlpbayes": base_config["model"]["mlpbayes"],
+        "lsensemble": {
+            "stage1": level_config["stage1"],
+            "stage2": level_config["stage2"]
+        }
+    }
+    
+    max_timeout = level_config["max_seconds_per_model"]
+    
+    logger.info(f"Using capilaridad level {level}")
+    logger.info(f"Max timeout per model: {max_timeout}s")
+    logger.info(f"Number of simulations: {model_config['n_simus']}")
+    
+    return model_config, max_timeout
+
 def load_modules():
     """Import required modules"""
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -119,7 +161,7 @@ def setup_logging(log_file_path, log_level="INFO"):
     
     logger.info(f"Logs serán guardados en: {log_file_path}")
 
-def main():
+def main(level=None, use_previous=None):
     # Set up signal handler for graceful interruption
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -145,19 +187,13 @@ def main():
         logging.error(f"Failed to load config from {config_path}: {e}")
         sys.exit(1)
     
+    # Ask user for level and build config (or use provided level)
+    if level is None:
+        level = ask_user_level()
+    model_config, max_timeout = build_config_from_level(config, level)
+    
     # Import required modules
     data_generator, test_module = load_modules()
-    
-    # Create model configuration dictionary compatible with test_LSEnsemble
-    model_config = {
-        "model_selection": config["model"]["selection_method"],
-        "n_simus": config["model"]["n_simulations"],
-        "mlpbayes": config["model"]["mlpbayes"],
-        "lsensemble": {
-            "stage1": config["model"]["lsensemble"]["stage1"],
-            "stage2": config["model"]["lsensemble"]["stage2"]
-        }
-    }
     
     # Create output configuration and ensure directory exists
     base_results_file_path = resolve_path(script_dir, config["output"]["results_file"])
@@ -175,7 +211,7 @@ def main():
     output_config = {
         "csv_file": results_file_path,
         "log_level": config["output"]["log_level"],
-        "max_seconds_per_model": config["model"].get("max_seconds_per_model", None),
+        "max_seconds_per_model": max_timeout,
     }
     
     # Set dataset path (single CSV file)
@@ -236,8 +272,11 @@ def main():
     logger.info(f"Starting model training and evaluation on dataset: {dataset_path}")
     logger.info(f"Using test_size: {test_size} (will use {int((1-test_size)*100)}% for training, {int(test_size*100)}% for testing)")
     
-    # Preguntar si se quiere usar el último best_runner guardado
-    use_previous_best = ask_use_previous_best()
+    # Preguntar si se quiere usar el último best_runner guardado (or use provided value)
+    if use_previous is None:
+        use_previous = ask_use_previous_best()
+    else:
+        use_previous_best = use_previous
 
     # Run test_LSEnsemble with the dataset path, test_size and dataset parameters
     try:
