@@ -8,6 +8,7 @@ Manages connection between GUI and run_test.py
 import sys
 import os
 import tkinter as tk
+import multiprocessing
 
 # Add parent directory to import run_test
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,15 +23,28 @@ class ExperimentRunner:
     
     def __init__(self):
         self.config_path = os.path.join(parent_dir, "config.yaml")
+        self.experiment_process = None
     
     def run_experiment(self, level, use_previous):
         """Execute the experiment with given parameters"""
         try:
-            # Call run_test.main with the parameters
-            result = run_test.main(level=level, use_previous=use_previous)
-            return result
+            # Create and start a new process for the experiment
+            self.experiment_process = multiprocessing.Process(target=run_test.main, args=(level, use_previous))
+            self.experiment_process.start()
+            # We don't join, so the GUI remains responsive
+            return "Experiment started in a new process."
         except Exception as e:
-            raise Exception(f"Failed to run experiment: {str(e)}")
+            raise Exception(f"Failed to start experiment process: {str(e)}")
+
+    def stop_experiment(self):
+        """Stops the currently running experiment."""
+        if self.experiment_process and self.experiment_process.is_alive():
+            self.experiment_process.terminate()
+            self.experiment_process.join() # Wait for the process to terminate
+            self.experiment_process = None
+            return "Experiment stopped."
+        else:
+            return "No experiment running."
     
     def get_config_preview(self):
         """Get configuration file content for preview"""
@@ -80,5 +94,6 @@ def main():
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support() # For PyInstaller
     main()
 

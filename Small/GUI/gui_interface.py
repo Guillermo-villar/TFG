@@ -142,50 +142,50 @@ class MLExperimentGUI:
             messagebox.showwarning("Warning", "An experiment is already running!")
             return
         
-        # Get parameters
         level = self.level_var.get()
         use_previous = self.use_previous_var.get()
         
-        # Update UI
         self.is_running = True
         self.start_button.configure(state='disabled')
         self.stop_button.configure(state='normal')
         self.status_var.set("Running")
         
-        # Clear log
         self.log_text.delete(1.0, tk.END)
-        
-        # Log start message
         self.add_log_message(f"Starting experiment with Level {level}, Use Previous: {use_previous}")
         
-        # Schedule experiment to run in main thread after UI update
-        self.root.after(100, self.run_experiment_main_thread, level, use_previous)
-    
-    def run_experiment_main_thread(self, level, use_previous):
-        """Run experiment in main thread to avoid signal issues"""
         try:
-            # Update GUI to show processing
-            self.root.update()
-            
-            # Use the experiment runner to execute
             result = self.experiment_runner.run_experiment(level, use_previous)
-            
-            # Update UI on completion
-            self.experiment_completed(result)
-            
+            self.add_log_message(result)
+            self.check_experiment_status() # Start polling
         except Exception as e:
-            error_msg = f"Error running experiment: {str(e)}"
-            self.experiment_error(error_msg)
-    
-    def experiment_completed(self, result):
+            self.experiment_error(str(e))
+
+    def check_experiment_status(self):
+        """Periodically check the status of the experiment process."""
+        if not self.is_running:
+            return
+
+        process = self.experiment_runner.experiment_process
+        if process and process.is_alive():
+            # Process is still running, check again later
+            self.root.after(1000, self.check_experiment_status)
+        else:
+            # Process has finished
+            if process and process.exitcode == 0:
+                self.experiment_completed("Experiment finished successfully.")
+            elif process:
+                self.experiment_error(f"Experiment process terminated with exit code {process.exitcode}.")
+            # If process is None (was stopped), do nothing as UI is already updated.
+
+    def experiment_completed(self, message):
         """Handle experiment completion"""
         self.is_running = False
         self.start_button.configure(state='normal')
         self.stop_button.configure(state='disabled')
         self.status_var.set("Completed")
         
-        self.add_log_message("Experiment completed successfully!")
-        messagebox.showinfo("Success", "Experiment completed successfully!")
+        self.add_log_message(message)
+        messagebox.showinfo("Success", message)
     
     def experiment_error(self, error_msg):
         """Handle experiment error"""
@@ -200,13 +200,19 @@ class MLExperimentGUI:
     def stop_experiment(self):
         """Stop the current experiment"""
         if self.is_running:
-            self.add_log_message("Stop requested by user...")
-            # Note: Actual stopping would require modification to run_test.py
-            # For now, just update UI
+            self.add_log_message("Stopping experiment...")
+            try:
+                result = self.experiment_runner.stop_experiment()
+                self.add_log_message(result)
+            except Exception as e:
+                self.add_log_message(f"Error stopping experiment: {str(e)}")
+            
             self.is_running = False
             self.start_button.configure(state='normal')
             self.stop_button.configure(state='disabled')
-            self.status_var.set("Stopped")
+            self.status_var.set("Stopped by user")
+        else:
+            messagebox.showinfo("Info", "No experiment is currently running.")
     
     def add_log_message(self, message):
         """Add message to log display"""
@@ -240,7 +246,8 @@ class MLExperimentGUI:
     def on_closing(self):
         """Handle window closing"""
         if self.is_running:
-            if messagebox.askokcancel("Quit", "An experiment is running. Do you want to quit anyway?"):
+            if messagebox.askokcancel("Quit", "An experiment is running. Do you want to stop it and quit?"):
+                self.stop_experiment()
                 self.root.destroy()
         else:
             self.root.destroy()
