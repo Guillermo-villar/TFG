@@ -25,6 +25,8 @@ class MLExperimentGUI:
         self.level_var = tk.IntVar(value=1)
         self.use_previous_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Ready")
+        self.study_mode_var = tk.StringVar(value="full_study")
+        self.popup_log_text = None  # For the popup window
         
         # Create widgets
         self.create_widgets()
@@ -41,7 +43,7 @@ class MLExperimentGUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(4, weight=1)
+        main_frame.rowconfigure(5, weight=1)
         
         # Title
         title_label = ttk.Label(main_frame, text="ML Experiment Launcher", 
@@ -59,6 +61,9 @@ class MLExperimentGUI:
         
         # Log display
         self.create_log_display(main_frame)
+        
+        # Advanced options
+        self.create_advanced_options(main_frame)
     
     def create_level_selection(self, parent):
         """Create level selection widgets"""
@@ -92,7 +97,7 @@ class MLExperimentGUI:
     def create_controls(self, parent):
         """Create control buttons and status"""
         control_frame = ttk.Frame(parent)
-        control_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        control_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         control_frame.columnconfigure(1, weight=1)
         
         # Buttons
@@ -118,16 +123,20 @@ class MLExperimentGUI:
         status_label = ttk.Label(status_frame, textvariable=self.status_var, 
                                 font=('Arial', 10, 'bold'))
         status_label.pack(side='left')
-    
+        
+        # Logs button
+        self.view_logs_button = ttk.Button(button_frame, text="View Logs", command=self.show_logs_window)
+        self.view_logs_button.pack(side="left", padx=5)
+
     def create_log_display(self, parent):
         """Create log display area"""
         log_frame = ttk.LabelFrame(parent, text="Execution Log", padding="5")
-        log_frame.grid(row=4, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(10, 0))
+        log_frame.grid(row=5, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(10, 0))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=12, wrap=tk.WORD)
-        self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.main_log_text = scrolledtext.ScrolledText(log_frame, height=12, wrap=tk.WORD)
+        self.main_log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Log controls
         log_controls = ttk.Frame(log_frame)
@@ -136,6 +145,59 @@ class MLExperimentGUI:
         ttk.Button(log_controls, text="Clear Log", 
                   command=self.clear_log).pack(side='left', padx=(0, 10))
     
+    def create_advanced_options(self, parent):
+        """Create advanced options section"""
+        advanced_frame = ttk.LabelFrame(parent, text="Advanced Settings", padding="10")
+        advanced_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        ttk.Radiobutton(advanced_frame, text="Study Base ML Model (Iterate Stage 1 & 2)",
+                       variable=self.study_mode_var, value="full_study").pack(anchor='w')
+        ttk.Radiobutton(advanced_frame, text="Only Study Class Imbalance Parameters (Iterate Stage 2)",
+                       variable=self.study_mode_var, value="stage2_only").pack(anchor='w')
+    
+    def show_logs_window(self):
+        """Creates and shows a window for displaying logs."""
+        if hasattr(self, 'log_window') and self.log_window.winfo_exists():
+            self.log_window.lift()
+            return
+
+        self.log_window = tk.Toplevel(self.root)
+        self.log_window.title("Experiment Logs")
+        self.log_window.geometry("800x600")
+
+        log_frame = ttk.Frame(self.log_window)
+        log_frame.pack(padx=10, pady=10, fill="both", expand=True)
+
+        self.popup_log_text = tk.Text(log_frame, wrap="word", state="disabled")
+        scrollbar = ttk.Scrollbar(log_frame, command=self.popup_log_text.yview)
+        self.popup_log_text.config(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side="right", fill="y")
+        self.popup_log_text.pack(side="left", fill="both", expand=True)
+
+        button_frame = ttk.Frame(self.log_window)
+        button_frame.pack(pady=5)
+
+        refresh_button = ttk.Button(button_frame, text="Refresh", command=self.update_logs)
+        refresh_button.pack(side="left", padx=5)
+        
+        close_button = ttk.Button(button_frame, text="Close", command=self.log_window.destroy)
+        close_button.pack(side="left", padx=5)
+
+        self.update_logs()
+
+    def update_logs(self):
+        """Fetches the latest logs and updates the text widget."""
+        if not hasattr(self, 'log_window') or not self.log_window.winfo_exists():
+            return
+            
+        log_content = self.experiment_runner.get_latest_log_content()
+        self.popup_log_text.config(state="normal")
+        self.popup_log_text.delete("1.0", tk.END)
+        self.popup_log_text.insert(tk.END, log_content)
+        self.popup_log_text.config(state="disabled")
+        self.popup_log_text.see(tk.END) # Auto-scroll to the bottom
+
     def start_experiment(self):
         """Start the ML experiment"""
         if self.is_running:
@@ -144,17 +206,18 @@ class MLExperimentGUI:
         
         level = self.level_var.get()
         use_previous = self.use_previous_var.get()
+        study_mode = self.study_mode_var.get()
         
         self.is_running = True
         self.start_button.configure(state='disabled')
         self.stop_button.configure(state='normal')
         self.status_var.set("Running")
         
-        self.log_text.delete(1.0, tk.END)
-        self.add_log_message(f"Starting experiment with Level {level}, Use Previous: {use_previous}")
+        self.main_log_text.delete(1.0, tk.END)
+        self.add_log_message(f"Starting experiment with Level {level}, Use Previous: {use_previous}, Study Mode: {study_mode}")
         
         try:
-            result = self.experiment_runner.run_experiment(level, use_previous)
+            result = self.experiment_runner.run_experiment(level, use_previous, study_mode)
             self.add_log_message(result)
             self.check_experiment_status() # Start polling
         except Exception as e:
@@ -216,12 +279,12 @@ class MLExperimentGUI:
     
     def add_log_message(self, message):
         """Add message to log display"""
-        self.log_text.insert(tk.END, f"{message}\n")
-        self.log_text.see(tk.END)
+        self.main_log_text.insert(tk.END, f"{message}\n")
+        self.main_log_text.see(tk.END)
     
     def clear_log(self):
         """Clear the log display"""
-        self.log_text.delete(1.0, tk.END)
+        self.main_log_text.delete(1.0, tk.END)
     
     def view_config(self):
         """Show current configuration"""

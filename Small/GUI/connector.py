@@ -22,14 +22,18 @@ class ExperimentRunner:
     """Handles the connection between GUI and run_test.py"""
     
     def __init__(self):
-        self.config_path = os.path.join(parent_dir, "config.yaml")
+        self.parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.config_path = os.path.join(self.parent_dir, "config.yaml")
         self.experiment_process = None
+        self.latest_log_file = None
     
-    def run_experiment(self, level, use_previous):
+    def run_experiment(self, level, use_previous, study_mode="full_study"):
         """Execute the experiment with given parameters"""
         try:
+            # Reset latest log file on new run
+            self.latest_log_file = None
             # Create and start a new process for the experiment
-            self.experiment_process = multiprocessing.Process(target=run_test.main, args=(level, use_previous))
+            self.experiment_process = multiprocessing.Process(target=run_test.main, args=(level, use_previous, study_mode))
             self.experiment_process.start()
             # We don't join, so the GUI remains responsive
             return "Experiment started in a new process."
@@ -46,6 +50,34 @@ class ExperimentRunner:
         else:
             return "No experiment running."
     
+    def get_latest_log_content(self):
+        """Finds the latest log file and returns its content."""
+        if self.latest_log_file and os.path.exists(self.latest_log_file):
+            with open(self.latest_log_file, 'r') as f:
+                return f.read()
+
+        results_dir = os.path.join(self.parent_dir, 'datasets', 'results')
+        if not os.path.isdir(results_dir):
+            return "Results directory not found."
+
+        try:
+            # Find the most recent experiment directory
+            all_run_dirs = [d for d in os.listdir(results_dir) if os.path.isdir(os.path.join(results_dir, d))]
+            if not all_run_dirs:
+                return "No experiment logs found."
+            
+            latest_dir = max(all_run_dirs, key=lambda d: os.path.getmtime(os.path.join(results_dir, d)))
+            log_file = os.path.join(results_dir, latest_dir, 'terminal_output.txt')
+
+            if os.path.exists(log_file):
+                self.latest_log_file = log_file
+                with open(log_file, 'r') as f:
+                    return f.read()
+            else:
+                return f"Log file not found in the latest run directory: {latest_dir}"
+        except Exception as e:
+            return f"Error reading log file: {str(e)}"
+
     def get_config_preview(self):
         """Get configuration file content for preview"""
         try:

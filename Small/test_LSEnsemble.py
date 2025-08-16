@@ -59,7 +59,7 @@ def custom_metric(y_true, y_pred):
 
 def run_test_from_csv(
     dataset_path, test_size, model_config, output_config, dataset_params=None, data_params_list=None,
-    use_previous_best_runner=False, best_runner_file=None
+    use_previous_best_runner=False, best_runner_file=None, study_mode="full_study"
 ):
     """
     Run the ensemble test with data loaded from a single CSV file or multiple data parameter sets.
@@ -90,15 +90,15 @@ def run_test_from_csv(
                 df = pd.read_csv(dataset_path)
                 # ... Optionally filter/modify df based on data_params if needed ...
                 _run_single_experiment(df, test_size, model_config, output_config, data_stats_extra=data_params, writer=writer, csvfile=csvfile,
-                                       use_previous_best_runner=use_previous_best_runner, best_runner_file=best_runner_file)
+                                       use_previous_best_runner=use_previous_best_runner, best_runner_file=best_runner_file, study_mode=study_mode)
         else:
             logger.info(f"Loading dataset from {dataset_path}")
             df = pd.read_csv(dataset_path)
             _run_single_experiment(df, test_size, model_config, output_config, data_stats_extra=dataset_params, writer=writer, csvfile=csvfile,
-                                   use_previous_best_runner=use_previous_best_runner, best_runner_file=best_runner_file)
+                                   use_previous_best_runner=use_previous_best_runner, best_runner_file=best_runner_file, study_mode=study_mode)
 
 def _run_single_experiment(df, test_size, model_config, output_config, data_stats_extra=None, writer=None, csvfile=None,
-                           use_previous_best_runner=False, best_runner_file=None):
+                           use_previous_best_runner=False, best_runner_file=None, study_mode="full_study"):
     # Split dataset into train and test based on test_size
     total_samples = len(df)
     split_idx = int((1 - test_size) * total_samples)
@@ -161,7 +161,7 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
     loss_fn = stage1.get("loss_fn", "F1")
     rb_each_expert = stage1.get("rb_each_expert", True)  # This is read from config
 
-    # Stage 2 params - ALWAYS load these from the config file
+        # Stage 2 params - ALWAYS load these from the config file
     LS_alpha = stage2.get("alpha", [])
     LS_beta = stage2.get("beta", [])
     LS_Q_RB_C = stage2.get("Q_RB_C", [])
@@ -192,18 +192,25 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
     best_metric = -np.inf
     best_runner_config = None
 
-    # Cargar best_runner si se solicita
+    run_stage1 = True
+    if study_mode == "stage2_only":
+        run_stage1 = False
+        logger.info("Study mode is 'stage2_only', skipping Stage 1.")
+    
     if use_previous_best_runner and best_runner_file and os.path.exists(best_runner_file):
+        run_stage1 = False
         with open(best_runner_file, "r") as f:
             best_runner = json.load(f)
-        logger.info(f"Usando best_runner guardado: {best_runner}")
-    else:
+        logger.info(f"Loaded best_runner from file, skipping Stage 1: {best_runner}")
+
+    if run_stage1:
         # Build grid for all LSEnsemble params except alpha, beta, Q_RB_C, Q_RB_S
         runner_param_grid = list(product(
             LS_num_experts, LS_hidden_size, LS_drop_out, LS_n_batch, LS_n_epoch
         ))
 
         total_runner = len(runner_param_grid)
+        logger.info(f"Starting Stage 1: Finding best runner from {total_runner} configurations.")
         for idx, runner_params in enumerate(runner_param_grid):
             num_experts, hidden_size, drop_out, n_batch, n_epoch = runner_params
             base_config = {
@@ -307,23 +314,38 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                             csvfile.flush()
                             os.fsync(csvfile.fileno())
                     continue
-            avg_metric = np.mean(metric_vals)
+            avg_metric = np.mean(metric_vals) if metric_vals else -np.inf
             if avg_metric > best_metric:
                 best_metric = avg_metric
                 best_runner = base_config.copy()
                 best_runner_config = config.copy()
 
-        logger.info(f"Best runner config (excluding alpha/beta/qrbc/qrbs): {best_runner}")
+        logger.info(f"Best runner config from Stage 1: {best_runner}")
         # Guardar el best_runner encontrado
-        if best_runner_file:
+        if best_runner_file and best_runner:
             with open(best_runner_file, "w") as f:
                 json.dump(best_runner, f)
-            logger.info(f"Best runner guardado en {best_runner_file}")
+            logger.info(f"Best runner saved to {best_runner_file}")
 
+    if not best_runner:
+        # Fallback to a default configuration if no best_runner is available after stage 1
+        best_runner = {
+            'lbfgs': lbfgs, 'mode': mode, 'activation_fn': activation_fn, 'loss_fn': loss_fn,
+            'num_experts': LS_num_experts[0] if LS_num_experts else 21,
+            'hidden_size': LS_hidden_size[0] if LS_hidden_size else 30,
+            'drop_out': LS_drop_out[0] if LS_drop_out else 0.0,
+            'n_batch': LS_n_batch[0] if LS_n_batch else 128,
+            'n_epoch': LS_n_epoch[0] if LS_n_epoch else 50,
+            'input_size': data_stats['input_size'],
+            'rb_each_expert': rb_each_expert
+        }
+        logger.warning(f"No best_runner was found or loaded. Using default parameters for Stage 2: {best_runner}")
+    
     # Stage 2: For the best runner, try all combinations of alpha, beta, Q_RB_C, Q_RB_S
     results = []
     total_lse = len(LS_alpha) * len(LS_beta) * len(LS_Q_RB_C) * len(LS_Q_RB_S)
     lse_idx = 0
+    logger.info(f"Starting Stage 2: Testing {total_lse} label switching configurations.")
     for alpha in LS_alpha:
         for beta in LS_beta:
             for Q_RB_C in LS_Q_RB_C:
@@ -417,7 +439,7 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                                     csvfile.flush()
                                     os.fsync(csvfile.fileno())
                             continue
-                    avg_metric = np.mean(metric_vals)
+                    avg_metric = np.mean(metric_vals) if metric_vals else -np.inf
                     results.append((config, avg_metric))
 
     # Al final busca el mejor resultado
@@ -428,6 +450,166 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
 
     # Return best config for reference
     return best_config if results else best_runner_config
+
+    # Stage 1: Find best runner (best config) for LSEnsemble, ignoring alpha/beta/qrbc/qrbs
+    best_runner = None
+    best_metric = -np.inf
+    best_runner_config = None
+
+    run_stage1 = True
+    if study_mode == "stage2_only":
+        run_stage1 = False
+        logger.info("Study mode is 'stage2_only', skipping Stage 1.")
+    
+    if use_previous_best_runner and best_runner_file and os.path.exists(best_runner_file):
+        run_stage1 = False
+        with open(best_runner_file, "r") as f:
+            best_runner = json.load(f)
+        logger.info(f"Loaded best_runner from file, skipping Stage 1: {best_runner}")
+
+    if run_stage1:
+        # Build grid for all LSEnsemble params except alpha, beta, Q_RB_C, Q_RB_S
+        runner_param_grid = list(product(
+            LS_num_experts, LS_hidden_size, LS_drop_out, LS_n_batch, LS_n_epoch
+        ))
+
+        total_runner = len(runner_param_grid)
+        logger.info(f"Starting Stage 1: Finding best runner from {total_runner} configurations.")
+        for idx, runner_params in enumerate(runner_param_grid):
+            num_experts, hidden_size, drop_out, n_batch, n_epoch = runner_params
+            base_config = {
+                'lbfgs': lbfgs,
+                'mode': mode,
+                'activation_fn': activation_fn,
+                'loss_fn': loss_fn,
+                'num_experts': num_experts,
+                'hidden_size': hidden_size,
+                'drop_out': drop_out,
+                'n_batch': n_batch,
+                'n_epoch': n_epoch,
+                'input_size': data_stats['input_size'],
+                'rb_each_expert': rb_each_expert  # Include the parameter in the model config
+            }
+            # Use default alpha/beta/qrbc/qrbs for runner selection (e.g. first value)
+            #ALL set to "0" values for Fase 1
+            alpha = 0.0
+            beta = 0.0
+            Q_RB_C = 2
+            Q_RB_S = 1
+            config = base_config.copy()
+            config.update({'alpha': alpha, 'beta': beta, 'Q_RB_C': Q_RB_C, 'Q_RB_S': Q_RB_S})
+            metric_vals = []
+            for k_simu in range(n_simus):
+                logger.info(f"Runner {idx+1}/{total_runner} Simu {k_simu+1}/{n_simus}: LSEnsemble with parameters: {config}")
+                try:
+                    signal.alarm(max_seconds_per_model)
+                    start_time = time.time()
+                    model = LSEnsemble(**config)
+                    model.fit(x_train, y_train, sample_weight=cw_train)
+                    ye_test = model.predict(x_test)
+                    end_time = time.time()
+                    signal.alarm(0)
+                    time_taken = end_time - start_time
+                    CM = confusion_matrix(y_test, ye_test)
+                    if loss_fn.lower() == "custom":
+                        metric, bac, minority_score = custom_metric(y_test, ye_test)
+                    else:
+                        metric = metric_fn(y_test, ye_test)
+                        _, bac, minority_score = custom_metric(y_test, ye_test)
+                    accuracy = np.mean(ye_test == y_test)
+                    metric_vals.append(metric)
+                    if writer is not None:
+                        # Calcular porcentajes de etiquetas cambiadas
+                        pos_switched = getattr(model, 'pos_to_neg_count', 0)
+                        neg_switched = getattr(model, 'neg_to_pos_count', 0)
+                        total_pos = getattr(model, 'total_pos', 1)  # Evitar división por cero
+                        total_neg = getattr(model, 'total_neg', 1)  # Evitar división por cero
+
+                        pct_pos_switched = (pos_switched / total_pos * 100) if total_pos > 0 else 0
+                        pct_neg_switched = (neg_switched / total_neg * 100) if total_neg > 0 else 0
+
+                        writer.writerow({
+                            'data_params': str(data_stats.get('data_params', {})),
+                            'model_name': 'LSEnsemble',
+                            'params': str(config),
+                            'metric': metric,
+                            'confusion_matrix': str(CM.tolist()),
+                            'accuracy': accuracy,
+                            'time_taken': time_taken,
+                            'label_switching_used': (alpha > 0) or (beta > 0),
+                            'num_labels_switched_pos_to_neg': pos_switched,
+                            'total_pos_labels': total_pos,
+                            'pct_pos_switched': f"{pct_pos_switched:.2f}%",
+                            'num_labels_switched_neg_to_pos': neg_switched,
+                            'total_neg_labels': total_neg,
+                            'pct_neg_switched': f"{pct_neg_switched:.2f}%",
+                            'custom_metric': metric if loss_fn.lower() == "custom" else "",
+                            'balanced_accuracy': bac,
+                            'minority_score': minority_score
+                        })
+                        if csvfile is not None:
+                            csvfile.flush()
+                            os.fsync(csvfile.fileno())
+                        logger.info(f"Wrote runner config result to CSV: {config}")
+                except TimeoutException:
+                    signal.alarm(0)
+                    logger.warning(f"Timeout: Model run exceeded {max_seconds_per_model} seconds for config: {config}. Skipping.")
+                    if writer is not None:
+                        writer.writerow({
+                            'data_params': str(data_stats.get('data_params', {})),
+                            'model_name': 'LSEnsemble',
+                            'params': str(config),
+                            'metric': 'timeout',
+                            'confusion_matrix': '',
+                            'accuracy': '',
+                            'time_taken': f'>{max_seconds_per_model}',
+                            'label_switching_used': (alpha > 0) or (beta > 0),
+                            'num_labels_switched_pos_to_neg': 0,
+                            'total_pos_labels': 0,
+                            'pct_pos_switched': "0.00%",
+                            'num_labels_switched_neg_to_pos': 0,
+                            'total_neg_labels': 0,
+                            'pct_neg_switched': "0.00%",
+                            'custom_metric': '',
+                            'balanced_accuracy': '',
+                            'minority_score': ''
+                        })
+                        if csvfile is not None:
+                            csvfile.flush()
+                            os.fsync(csvfile.fileno())
+                    continue
+            avg_metric = np.mean(metric_vals) if metric_vals else -np.inf
+            if avg_metric > best_metric:
+                best_metric = avg_metric
+                best_runner = base_config.copy()
+                best_runner_config = config.copy()
+
+        logger.info(f"Best runner config from Stage 1: {best_runner}")
+        # Guardar el best_runner encontrado
+        if best_runner_file and best_runner:
+            with open(best_runner_file, "w") as f:
+                json.dump(best_runner, f)
+            logger.info(f"Best runner saved to {best_runner_file}")
+
+    if not best_runner:
+        # Fallback to a default configuration if no best_runner is available after stage 1
+        best_runner = {
+            'lbfgs': lbfgs, 'mode': mode, 'activation_fn': activation_fn, 'loss_fn': loss_fn,
+            'num_experts': LS_num_experts[0] if LS_num_experts else 21,
+            'hidden_size': LS_hidden_size[0] if LS_hidden_size else 30,
+            'drop_out': LS_drop_out[0] if LS_drop_out else 0.0,
+            'n_batch': LS_n_batch[0] if LS_n_batch else 128,
+            'n_epoch': LS_n_epoch[0] if LS_n_epoch else 50,
+            'input_size': data_stats['input_size'],
+            'rb_each_expert': rb_each_expert
+        }
+        logger.warning(f"No best_runner was found or loaded. Using default parameters for Stage 2: {best_runner}")
+    
+    # Stage 2: For the best runner, try all combinations of alpha, beta, Q_RB_C, Q_RB_S
+    results = []
+    total_lse = len(LS_alpha) * len(LS_beta) * len(LS_Q_RB_C) * len(LS_Q_RB_S)
+    lse_idx = 0
+    logger.info(f"Starting Stage 2: Testing {total_lse} label switching configurations.")
 
 if __name__ == "__main__":
     setup_logging()

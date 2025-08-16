@@ -161,7 +161,7 @@ def setup_logging(log_file_path, log_level="INFO"):
     
     logger.info(f"Logs serán guardados en: {log_file_path}")
 
-def main(level=None, use_previous=None):
+def main(level=None, use_previous=None, study_mode="full_study"):
     # Set up signal handler for graceful interruption
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -191,6 +191,15 @@ def main(level=None, use_previous=None):
     if level is None:
         level = ask_user_level()
     model_config, max_timeout = build_config_from_level(config, level)
+
+    if study_mode == "stage2_only":
+        logger.info("Study mode is 'stage2_only'. Skipping stage 1 iterations.")
+        # You might want to load a default or best runner for stage 1
+        # For now, we assume a single default configuration for stage1
+        # Or that use_previous_best_runner will be True
+        if not use_previous:
+             logger.warning("Warning: 'stage2_only' is selected, but 'use_previous' is false. This may lead to unexpected behavior if a base model is required.")
+
     
     # Import required modules
     data_generator, test_module = load_modules()
@@ -275,14 +284,13 @@ def main(level=None, use_previous=None):
     # Preguntar si se quiere usar el último best_runner guardado (or use provided value)
     if use_previous is None:
         use_previous = ask_use_previous_best()
-    else:
-        use_previous_best = use_previous
-
+    
     # Run test_LSEnsemble with the dataset path, test_size and dataset parameters
     try:
         results = test_module.run_test_from_csv(
             dataset_path, test_size, model_config, output_config, dataset_params,
-            use_previous_best_runner=use_previous_best, best_runner_file=BEST_RUNNER_FILE
+            use_previous_best_runner=use_previous, best_runner_file=BEST_RUNNER_FILE,
+            study_mode=study_mode
         )
         logger.info(f"Testing completed, results saved to {output_config['csv_file']}")
     except KeyboardInterrupt:

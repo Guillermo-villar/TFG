@@ -576,7 +576,7 @@ class LSEnsemble(nn.Module):
     def __init__(self, hidden_size, num_experts, alpha=0, beta=0, Q_RB_C=1, 
                  Q_RB_S=1, n_epoch=1, n_batch=1, lbfgs=False, mode='random', 
                  input_size=None, drop_out=0, activation_fn="tanh", output_act=1,
-                 loss_fn='MSE'):  # Added loss_fn as an argument):
+                 loss_fn='MSE', rb_each_expert=False):  # Added loss_fn as an argument):
         """
         Parameters:
         - hidden_size (int): 
@@ -624,6 +624,7 @@ class LSEnsemble(nn.Module):
         self.alpha = alpha
         self.beta = beta
         self.drop_out = drop_out
+        self.rb_each_expert = rb_each_expert
         # Map the provided string to the actual loss function
         self.loss_fn_e = LOSS_FUNCTIONS.get(loss_fn, weighted_mse_loss)  # Default to MSE if not found
       
@@ -834,7 +835,7 @@ class LSEnsemble(nn.Module):
         
         self.generate_experts_data(x_train, y_train, sample_weight,
                                    Q_RB_S=self.Q_RB_S,
-                                   RB_each_expert=False)
+                                   RB_each_expert=self.rb_each_expert)
         
         # Optional: Set sample weights to experts if provided
         if sample_weight is not None:
