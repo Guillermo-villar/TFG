@@ -9,6 +9,7 @@ import sys
 import os
 import tkinter as tk
 import multiprocessing
+import yaml
 
 # Add parent directory to import run_test
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,9 +28,12 @@ class ExperimentRunner:
         self.experiment_process = None
         self.latest_log_file = None
     
-    def run_experiment(self, level, use_previous, study_mode="full_study"):
+    def run_experiment(self, level, use_previous, study_mode="full_study", data_source="synthetic", csv_path=None):
         """Execute the experiment with given parameters"""
         try:
+            # Modify config based on data source
+            self.update_config(data_source, csv_path)
+
             # Reset latest log file on new run
             self.latest_log_file = None
             # Create and start a new process for the experiment
@@ -77,6 +81,37 @@ class ExperimentRunner:
                 return f"Log file not found in the latest run directory: {latest_dir}"
         except Exception as e:
             return f"Error reading log file: {str(e)}"
+
+    def find_csv_files(self):
+        """Find all .csv files in the project directory"""
+        csv_files = []
+        for root, _, files in os.walk(self.parent_dir):
+            for file in files:
+                if file.endswith(".csv"):
+                    csv_files.append(os.path.join(root, file))
+        return csv_files
+
+    def update_config(self, data_source, csv_path):
+        """Update config.yaml based on data source selection"""
+        try:
+            with open(self.config_path, 'r') as f:
+                config = yaml.safe_load(f)
+
+            if 'data' not in config:
+                config['data'] = {}
+
+            if data_source == "synthetic":
+                config['data']['generate_new'] = True
+            elif data_source == "real":
+                config['data']['generate_new'] = False
+                if csv_path:
+                    config['data']['external_dataset'] = csv_path
+
+            with open(self.config_path, 'w') as f:
+                yaml.dump(config, f, default_flow_style=False)
+
+        except Exception as e:
+            raise Exception(f"Failed to update config.yaml: {str(e)}")
 
     def get_config_preview(self):
         """Get configuration file content for preview"""

@@ -6,7 +6,7 @@ Manages all Tkinter widgets and user interface
 """
 
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox, filedialog
 
 
 class MLExperimentGUI:
@@ -16,7 +16,7 @@ class MLExperimentGUI:
         self.root = root
         self.experiment_runner = experiment_runner
         self.root.title("ML Experiment Launcher")
-        self.root.geometry("600x500")
+        self.root.geometry("800x620")
         
         # State variables
         self.is_running = False
@@ -26,6 +26,8 @@ class MLExperimentGUI:
         self.use_previous_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Ready")
         self.study_mode_var = tk.StringVar(value="full_study")
+        self.data_source_var = tk.StringVar(value="synthetic")
+        self.csv_path_var = tk.StringVar(value="")
         self.popup_log_text = None  # For the popup window
         
         # Create widgets
@@ -36,34 +38,55 @@ class MLExperimentGUI:
     
     def create_widgets(self):
         """Create all GUI widgets"""
-        main_frame = ttk.Frame(self.root, padding="10")
+        # Create a canvas and a scrollbar
+        canvas = tk.Canvas(self.root)
+        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        main_frame = ttk.Frame(scrollable_frame, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(5, weight=1)
+        main_frame.rowconfigure(6, weight=1) # Adjusted row for log display
         
         # Title
         title_label = ttk.Label(main_frame, text="ML Experiment Launcher", 
                                font=('Arial', 14, 'bold'))
-        title_label.grid(row=0, column=0, pady=(0, 20))
+        title_label.grid(row=0, column=0, pady=(0, 20), sticky='w')
         
         # Level selection
         self.create_level_selection(main_frame)
         
+        # Data source selection
+        self.create_data_source_selection(main_frame)
+
         # Options
         self.create_options_section(main_frame)
+
+        # Advanced options
+        self.create_advanced_options(main_frame)
         
         # Control buttons and status
         self.create_controls(main_frame)
         
         # Log display
         self.create_log_display(main_frame)
-        
-        # Advanced options
-        self.create_advanced_options(main_frame)
     
     def create_level_selection(self, parent):
         """Create level selection widgets"""
@@ -86,18 +109,123 @@ class MLExperimentGUI:
             ttk.Label(frame, text=description, foreground='gray', 
                      font=('Arial', 8)).pack(anchor='w', padx=(20, 0))
     
+    def create_data_source_selection(self, parent):
+        """Create data source selection widgets"""
+        data_frame = ttk.LabelFrame(parent, text="Data Source", padding="10")
+        data_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        data_frame.columnconfigure(1, weight=1)
+
+        ttk.Radiobutton(data_frame, text="Synthetic Data", variable=self.data_source_var, 
+                        value="synthetic", command=self.toggle_csv_options).pack(anchor='w')
+        
+        real_data_frame = ttk.Frame(data_frame)
+        real_data_frame.pack(anchor='w', fill='x', pady=(5, 0))
+
+        ttk.Radiobutton(real_data_frame, text="Real CSV Data", variable=self.data_source_var, 
+                        value="real", command=self.toggle_csv_options).pack(side='left', anchor='w')
+
+        self.csv_options_frame = ttk.Frame(real_data_frame)
+
+        # Frame for file selection widgets
+        file_selection_frame = ttk.Frame(self.csv_options_frame)
+        file_selection_frame.pack(anchor='w', fill='x', pady=(5, 0))
+
+        # This frame will contain the button and the label/dropdown part
+        left_frame = ttk.Frame(file_selection_frame)
+        left_frame.pack(side='left', anchor='n')
+        
+        browse_button = ttk.Button(left_frame, text="📁 Select a file", command=self.browse_csv_file)
+        browse_button.pack(side='left', padx=(0, 5))
+
+        right_frame = ttk.Frame(file_selection_frame)
+        right_frame.pack(side='left', expand=True, fill='x')
+
+        # New label for standardized tests
+        ttk.Label(right_frame, text="Or test with an industry-standard dataset").pack(anchor='w')
+
+        self.csv_path_dropdown = ttk.Combobox(right_frame, textvariable=self.csv_path_var, width=30)
+        self.csv_path_dropdown.pack(anchor='w', expand=True, fill='x')
+        self.csv_path_dropdown.set("See standardized tests...")
+
+        self.populate_csv_files()
+        self.csv_options_frame.pack(side='left', padx=(10, 0), expand=True, fill='x')
+
+    def toggle_csv_options(self):
+        """Enable/disable CSV options based on radio button selection"""
+        is_real_data = self.data_source_var.get() == "real"
+        
+        # Iterate over child widgets of csv_options_frame to enable/disable them
+        for child in self.csv_options_frame.winfo_children():
+            try:
+                # This will work for ttk widgets
+                child.configure(state='normal' if is_real_data else 'disabled')
+            except tk.TclError:
+                # Some widgets like Frames might not have a 'state' option
+                pass
+        
+        # Specifically handle Combobox, which needs a different way to disable
+        self.csv_path_dropdown.configure(state='readonly' if is_real_data else 'disabled')
+        
+        # Also handle widgets inside nested frames
+        for child in self.csv_options_frame.winfo_children():
+            if isinstance(child, ttk.Frame):
+                for grandchild in child.winfo_children():
+                    try:
+                        grandchild.configure(state='normal' if is_real_data else 'disabled')
+                    except tk.TclError:
+                        pass
+
+    def populate_csv_files(self):
+        """Populate the dropdown with available CSV files"""
+        try:
+            csv_files = self.experiment_runner.find_csv_files()
+            # Add MNIST placeholders
+            mnist_files = ["mnist_train.csv", "mnist_test.csv"]
+            for f in mnist_files:
+                if f not in csv_files:
+                    csv_files.insert(0, f)
+            
+            self.csv_path_dropdown['values'] = csv_files
+            if csv_files:
+                self.csv_path_var.set(csv_files[0])
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to find CSV files: {e}")
+
+    def browse_csv_file(self):
+        """Open file dialog to select a CSV file"""
+        filepath = filedialog.askopenfilename(
+            title="Select your CSV file",
+            filetypes=(("CSV files", "*.csv"), ("All files", "*.*"))
+        )
+        if filepath:
+            current_values = list(self.csv_path_dropdown['values'])
+            if filepath not in current_values:
+                current_values.append(filepath)
+                self.csv_path_dropdown['values'] = current_values
+            self.csv_path_var.set(filepath)
+    
     def create_options_section(self, parent):
         """Create options section"""
         options_frame = ttk.LabelFrame(parent, text="Options", padding="10")
-        options_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        options_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         
         ttk.Checkbutton(options_frame, text="Use previous best runner configuration",
                        variable=self.use_previous_var).pack(anchor='w')
-    
+
+    def create_advanced_options(self, parent):
+        """Create advanced options section"""
+        advanced_frame = ttk.LabelFrame(parent, text="Advanced Settings", padding="10")
+        advanced_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        ttk.Radiobutton(advanced_frame, text="Study Base ML Model (Iterate Stage 1 & 2)",
+                       variable=self.study_mode_var, value="full_study").pack(anchor='w')
+        ttk.Radiobutton(advanced_frame, text="Only Study Class Imbalance Parameters (Iterate Stage 2)",
+                       variable=self.study_mode_var, value="stage2_only").pack(anchor='w')
+
     def create_controls(self, parent):
         """Create control buttons and status"""
         control_frame = ttk.Frame(parent)
-        control_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        control_frame.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=(10, 10))
         control_frame.columnconfigure(1, weight=1)
         
         # Buttons
@@ -131,7 +259,7 @@ class MLExperimentGUI:
     def create_log_display(self, parent):
         """Create log display area"""
         log_frame = ttk.LabelFrame(parent, text="Execution Log", padding="5")
-        log_frame.grid(row=5, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(10, 0))
+        log_frame.grid(row=6, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
@@ -144,16 +272,6 @@ class MLExperimentGUI:
         
         ttk.Button(log_controls, text="Clear Log", 
                   command=self.clear_log).pack(side='left', padx=(0, 10))
-    
-    def create_advanced_options(self, parent):
-        """Create advanced options section"""
-        advanced_frame = ttk.LabelFrame(parent, text="Advanced Settings", padding="10")
-        advanced_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
-        
-        ttk.Radiobutton(advanced_frame, text="Study Base ML Model (Iterate Stage 1 & 2)",
-                       variable=self.study_mode_var, value="full_study").pack(anchor='w')
-        ttk.Radiobutton(advanced_frame, text="Only Study Class Imbalance Parameters (Iterate Stage 2)",
-                       variable=self.study_mode_var, value="stage2_only").pack(anchor='w')
     
     def show_logs_window(self):
         """Creates and shows a window for displaying logs."""
@@ -207,6 +325,8 @@ class MLExperimentGUI:
         level = self.level_var.get()
         use_previous = self.use_previous_var.get()
         study_mode = self.study_mode_var.get()
+        data_source = self.data_source_var.get()
+        csv_path = self.csv_path_var.get() if data_source == "real" else None
         
         self.is_running = True
         self.start_button.configure(state='disabled')
@@ -215,9 +335,19 @@ class MLExperimentGUI:
         
         self.main_log_text.delete(1.0, tk.END)
         self.add_log_message(f"Starting experiment with Level {level}, Use Previous: {use_previous}, Study Mode: {study_mode}")
-        
+        if data_source == 'real':
+            self.add_log_message(f"Using real data from: {csv_path}")
+        else:
+            self.add_log_message("Using synthetic data")
+
         try:
-            result = self.experiment_runner.run_experiment(level, use_previous, study_mode)
+            result = self.experiment_runner.run_experiment(
+                level=level, 
+                use_previous=use_previous, 
+                study_mode=study_mode,
+                data_source=data_source,
+                csv_path=csv_path
+            )
             self.add_log_message(result)
             self.check_experiment_status() # Start polling
         except Exception as e:

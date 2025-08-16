@@ -1,133 +1,206 @@
-# Simple configuration file for LSEnsemble testing
-
-# Capilaridad levels configuration
 capilaridad_levels:
-  1:  # Basic - fast, few combinations
+  1:
     max_seconds_per_model: 120
     n_simulations: 1
     stage1:
-      num_experts: [21]
-      hidden_size: [30]
-      drop_out: [0.0]
-      n_batch: [128]
-      n_epoch: [50]
+      activation_fn: relu
+      drop_out:
+      - 0.0
+      hidden_size:
+      - 30
       lbfgs: false
-      mode: "random"
-      activation_fn: "relu"
-      loss_fn: "custom"
+      loss_fn: custom
+      mode: random
+      n_batch:
+      - 128
+      n_epoch:
+      - 50
+      num_experts:
+      - 21
       rb_each_expert: false
     stage2:
-      alpha: [0.0, 0.25]
-      beta: [0.0]
-      Q_RB_C: [2.0]
-      Q_RB_S: [1, 3]
-  
-  2:  # Intermediate - balanced (current config)
+      Q_RB_C:
+      - 2.0
+      Q_RB_S:
+      - 1
+      - 3
+      alpha:
+      - 0.0
+      - 0.25
+      beta:
+      - 0.0
+  2:
     max_seconds_per_model: 300
     n_simulations: 1
     stage1:
-      num_experts: [21, 31]
-      hidden_size: [30, 40]
-      drop_out: [0, 0.1]
-      n_batch: [128, 256]
-      n_epoch: [50, 100]
+      activation_fn: relu
+      drop_out:
+      - 0
+      - 0.1
+      hidden_size:
+      - 30
+      - 40
       lbfgs: false
-      mode: "random"
-      activation_fn: "relu"
-      loss_fn: "custom"
+      loss_fn: custom
+      mode: random
+      n_batch:
+      - 128
+      - 256
+      n_epoch:
+      - 50
+      - 100
+      num_experts:
+      - 21
+      - 31
       rb_each_expert: false
     stage2:
-      alpha: [0.15, 0.2, 0.35]
-      beta: [0, 0.1]
-      Q_RB_C: [2.0, 5.0]
-      Q_RB_S: [1, 2, 5]
-  
-  3:  # Advanced - exhaustive, many combinations
+      Q_RB_C:
+      - 2.0
+      - 5.0
+      Q_RB_S:
+      - 1
+      - 2
+      - 5
+      alpha:
+      - 0.15
+      - 0.2
+      - 0.35
+      beta:
+      - 0
+      - 0.1
+  3:
     max_seconds_per_model: 600
     n_simulations: 2
     stage1:
-      num_experts: [21, 26, 31]
-      hidden_size: [30, 35, 40]
-      drop_out: [0.0, 0.05, 0.1]
-      n_batch: [128, 192, 256]
-      n_epoch: [50, 75, 100]
+      activation_fn: relu
+      drop_out:
+      - 0.0
+      - 0.05
+      - 0.1
+      hidden_size:
+      - 30
+      - 35
+      - 40
       lbfgs: false
-      mode: "random"
-      activation_fn: "relu"
-      loss_fn: "custom"
+      loss_fn: custom
+      mode: random
+      n_batch:
+      - 128
+      - 192
+      - 256
+      n_epoch:
+      - 50
+      - 75
+      - 100
+      num_experts:
+      - 21
+      - 26
+      - 31
       rb_each_expert: false
     stage2:
-      alpha: [0.0, 0.1, 0.15, 0.25, 0.35]
-      beta: [0.0, 0.05, 0.1, 0.15]
-      Q_RB_C: [1.5, 2.0, 3.0, 5.0]
-      Q_RB_S: [1, 2, 3, 5, 7]
-
-# Data generation parameters
+      Q_RB_C:
+      - 1.5
+      - 2.0
+      - 3.0
+      - 5.0
+      Q_RB_S:
+      - 1
+      - 2
+      - 3
+      - 5
+      - 7
+      alpha:
+      - 0.0
+      - 0.1
+      - 0.15
+      - 0.25
+      - 0.35
+      beta:
+      - 0.0
+      - 0.05
+      - 0.1
+      - 0.15
 data:
-  # Whether to generate new data (true) or use existing CSV (false)
+  dataset_file: ./datasets/synthetic/synth_dataset.csv
+  external_dataset: mnist_test.csv
   generate_new: true
-  
-  # Single dataset file path (used when generate_new is true)
-  dataset_file: "./datasets/synthetic/synth_dataset.csv"
-  
-  # External dataset paths (used when generate_new is false)
-  external_dataset: "./datasets/external/synth_dataset.csv"
-  
-  # Parameters for synthetic data generation (used when generate_new is true)
   params:
-    n_samples: 6000
+    n_classes: 2
     n_features: 20
     n_informative: 15
     n_redundant: 5
-    n_classes: 2
-    weights: [0.95, 0.05]  # Class weight distribution
-    test_size: 0.2
+    n_samples: 6000
     random_state: 41
-
-# Model configuration parameters
+    test_size: 0.2
+    weights:
+    - 0.95
+    - 0.05
 model:
-  # How to select the model: best individual model ('ind') or best configuration ('conf')
-  selection_method: "conf"
-  n_simulations: 1  # Number of simulations per configuration
-  max_seconds_per_model: 300  # Maximum seconds per model run (example: 5 minutes)
-  # Metrics configuration
-
-
-  
-  # MLPBayes parameters
+  lsensemble:
+    stage1:
+      activation_fn: relu
+      drop_out:
+      - 0
+      - 0.1
+      hidden_size:
+      - 30
+      - 40
+      lbfgs: false
+      loss_fn: custom
+      mode: random
+      n_batch:
+      - 128
+      - 256
+      n_epoch:
+      - 50
+      - 100
+      num_experts:
+      - 21
+      - 31
+      rb_each_expert: false
+    stage2:
+      Q_RB_C:
+      - 2.0
+      - 5.0
+      Q_RB_S:
+      - 1
+      - 2
+      - 5
+      alpha:
+      - 0.15
+      - 0.2
+      - 0.35
+      beta:
+      - 0
+      - 0.1
+  max_seconds_per_model: 300
   mlpbayes:
     costeN: 1
     costeP: 1
-    s_No: [1]
-    s_NnBase: [20, 30]
-    s_pDOent: [0.0, 0.1]
-    s_pDOocu: [0.0, 0.1]
-    s_tActBase: ["tanh", "relu"]
-    s_tActSalida: ["identity"]
-    s_nBatch: [128, 256]
-    s_nEpoch: [100, 200]
-  
-  # LSEnsemble parameters
-  lsensemble:
-    stage1:
-      num_experts: [21, 31]
-      hidden_size: [30, 40]
-      drop_out: [0, 0.1]
-      n_batch: [128, 256]
-      n_epoch: [50, 100]
-      lbfgs: false
-      mode: "random"
-      activation_fn: "relu"
-      loss_fn: "custom"   # Opciones: "custom", "F1", "balanced_accuracy"
-      rb_each_expert: false  # Control whether each expert gets a unique SMOTE dataset (false = shared SMOTE)
-    stage2:
-      # alpha is relatively high. if alpha< 0.15, no items are switched
-      alpha: [0.15, 0.2, 0.35]  # Corregido el punto decimal
-      beta: [0, 0.1]
-      Q_RB_C: [2.0, 5.0]
-      Q_RB_S: [1, 2, 5]
-
-# Output configuration
+    s_NnBase:
+    - 20
+    - 30
+    s_No:
+    - 1
+    s_nBatch:
+    - 128
+    - 256
+    s_nEpoch:
+    - 100
+    - 200
+    s_pDOent:
+    - 0.0
+    - 0.1
+    s_pDOocu:
+    - 0.0
+    - 0.1
+    s_tActBase:
+    - tanh
+    - relu
+    s_tActSalida:
+    - identity
+  n_simulations: 1
+  selection_method: conf
 output:
-  results_file: "./datasets/results/test_results.csv"
-  log_level: "INFO"
+  log_level: INFO
+  results_file: ./datasets/results/test_results.csv
