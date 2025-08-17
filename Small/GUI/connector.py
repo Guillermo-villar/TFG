@@ -16,7 +16,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, parent_dir)
 
 import run_test
-from gui_interface import MLExperimentGUI
+from gui_interface import MLExperimentGUI, LanguageSetupWindow
 
 
 class ExperimentRunner:
@@ -145,9 +145,16 @@ def main():
         # Validate environment
         runner.validate_environment()
         
-        # Create GUI
+        # Show initial setup screen
+        setup_window = LanguageSetupWindow()
+        language, ml_familiar, completed = setup_window.run()
+        
+        if not completed:
+            return  # User closed setup window without completing
+        
+        # Create main GUI with selected language and ML familiarity
         root = tk.Tk()
-        app = MLExperimentGUI(root, runner)
+        app = MLExperimentGUI(root, runner, language, ml_familiar)
         
         # Start GUI main loop
         root.mainloop()
