@@ -100,9 +100,9 @@ class LanguageSetupWindow:
         main_frame.pack(fill='both', expand=True)
         
         # Title
-        title = ttk.Label(main_frame, text=self.texts.get("welcome_title", "Welcome to ML Experiment Launcher"), 
+        self.welcome_title_label = ttk.Label(main_frame, text=self.texts.get("welcome_title", "Welcome to ML Experiment Launcher"), 
                          font=('Arial', 16, 'bold'))
-        title.pack(pady=(0, 30))
+        self.welcome_title_label.pack(pady=(0, 30))
         
         # Language selection
         lang_frame = ttk.LabelFrame(main_frame, text=self.texts.get("language_selection", "Select Language / Seleccionar Idioma"), 
@@ -172,6 +172,9 @@ class LanguageSetupWindow:
         # Update window title
         self.root.title(self.texts.get("setup_title", "ML Experiment Launcher - Setup"))
         
+        # Update welcome title
+        self.welcome_title_label.configure(text=self.texts.get("welcome_title", "Welcome to ML Experiment Launcher"))
+        
         if self.language == "es":
             self.ml_frame.configure(text=self.texts.get("ml_familiarity", "Familiaridad con Machine Learning"))
             self.ml_question_label.configure(
@@ -198,6 +201,7 @@ class LanguageSetupWindow:
         """Continue to main app"""
         self.language = self.language_var.get()
         self.ml_familiar = self.ml_familiar_var.get()
+        print(f"Setup completed with language: {self.language}, ML familiar: {self.ml_familiar}")
         self.completed = True
         self.root.destroy()
     
@@ -238,6 +242,9 @@ class MLExperimentGUI:
         self.csv_path_var = tk.StringVar(value="")
         self.popup_log_text = None  # For the popup window
         
+        # Store references to widgets that need translation updates
+        self.title_label = None
+        
         # Create widgets
         self.create_widgets()
         
@@ -254,8 +261,14 @@ class MLExperimentGUI:
             with open(translations_file, 'r', encoding='utf-8') as f:
                 translations = json.load(f)
             
-            return translations.get(self.language, translations.get('en', {}))
+            # Debug: Print what language we're loading and what title we got
+            selected_texts = translations.get(self.language, translations.get('en', {}))
+            print(f"Loading language: {self.language}")
+            print(f"Title loaded: {selected_texts.get('title', 'TITLE NOT FOUND')}")
+            
+            return selected_texts
         except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+            print(f"Error loading translations: {e}")
             # Fallback to minimal English if file not found or corrupted
             return {
                 "title": "ML Experiment Launcher",
@@ -298,9 +311,9 @@ class MLExperimentGUI:
         main_frame.rowconfigure(6, weight=1) # Adjusted row for log display
         
         # Title
-        title_label = ttk.Label(main_frame, text=self.texts["title"], 
+        self.title_label = ttk.Label(main_frame, text=self.texts["title"], 
                                font=('Arial', 14, 'bold'))
-        title_label.grid(row=0, column=0, pady=(0, 20), sticky='w')
+        self.title_label.grid(row=0, column=0, pady=(0, 20), sticky='w')
         
         # Level selection
         self.create_level_selection(main_frame)
