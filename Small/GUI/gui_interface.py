@@ -63,7 +63,9 @@ class LanguageSetupWindow:
                 "no_beginner": "No, I'm a beginner",
                 "continue": "Continue",
                 "english_option": "EN (English)",
-                "spanish_option": "ES (Español)"
+                "spanish_option": "ES (Español)",
+                "advanced_access_title": "Advanced Configuration Access",
+                "advanced_access_message": "Great! As an experienced ML user, you will have access to advanced configurations in the application. You can run experiments with full control over every configuration aspect available in config.yaml."
             }
     
     def center_window(self):
@@ -136,7 +138,8 @@ class LanguageSetupWindow:
         self.buttons_frame.pack()
         
         self.yes_button = ttk.Radiobutton(self.buttons_frame, text="", 
-                                         variable=self.ml_familiar_var, value=True)
+                                         variable=self.ml_familiar_var, value=True,
+                                         command=self.on_ml_familiar_selected)
         self.yes_button.pack(side='left', padx=10)
         
         self.no_button = ttk.Radiobutton(self.buttons_frame, text="", 
@@ -196,6 +199,19 @@ class LanguageSetupWindow:
             
         # Force the window to update its display
         self.root.update_idletasks()
+    
+    def on_ml_familiar_selected(self):
+        """Handle when ML familiar option is selected"""
+        if self.ml_familiar_var.get():  # Only show popup if "Yes, I'm familiar" is selected
+            self.show_advanced_access_popup()
+    
+    def show_advanced_access_popup(self):
+        """Show popup informing about advanced configuration access"""
+        title = self.texts.get("advanced_access_title", "Advanced Configuration Access")
+        message = self.texts.get("advanced_access_message", 
+                                "Great! As an experienced ML user, you will have access to advanced configurations in the application.")
+        
+        messagebox.showinfo(title, message)
     
     def continue_setup(self):
         """Continue to main app"""

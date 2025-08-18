@@ -60,7 +60,9 @@
     "no_beginner": "No, I'm a beginner",
     "continue": "Continue",
     "english_option": "EN (English)",
-    "spanish_option": "ES (Español)"
+    "spanish_option": "ES (Español)",
+    "advanced_access_title": "Advanced Configuration Access",
+    "advanced_access_message": "Great! As an experienced ML user, you will have access to advanced configurations in the application. You can run experiments with full control over every configuration aspect available in config.yaml, allowing you to customize parameters for optimal results."
   },
   "es": {
     "title": "Lanzador de Experimentos ML",
@@ -123,6 +125,8 @@
     "no_beginner": "No, soy principiante",
     "continue": "Continuar",
     "english_option": "EN (English)",
-    "spanish_option": "ES (Español)"
+    "spanish_option": "ES (Español)",
+    "advanced_access_title": "Acceso a Configuración Avanzada",
+    "advanced_access_message": "¡Excelente! Como usuario experimentado en ML, tendrás acceso a configuraciones avanzadas en la aplicación. Puedes ejecutar experimentos con control total sobre cada aspecto de configuración disponible en config.yaml, permitiéndote personalizar parámetros para obtener resultados óptimos."
   }
 }
