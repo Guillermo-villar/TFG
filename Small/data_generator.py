@@ -1,9 +1,235 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os
+import hashlib
 import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification
+
+def generate_dataset_id(params, data_type="synth"):
+    """
+    Generate a unique dataset ID based on dataset parameters.
+    
+    Parameters:
+    -----------
+    params : dict
+        Dictionary containing dataset parameters
+    data_type : str
+        Type of dataset ("synth" or "real")
+        
+    Returns:
+    --------
+    dataset_id : str
+        Unique identifier for the dataset
+    """
+    # Create a string representation of parameters for hashing
+    if data_type == "synth":
+        # For synthetic data, use the generation parameters
+        param_str = f"{params.get('n_samples', 0)}_{params.get('n_features', 0)}_{params.get('n_informative', 0)}_{params.get('n_redundant', 0)}_{params.get('n_classes', 2)}_{params.get('random_state', 42)}"
+        if params.get('weights'):
+            param_str += f"_weights_{'_'.join(map(str, params['weights']))}"
+    else:
+        # For real data, use the file path
+        param_str = str(params.get('file_path', 'unknown'))
+    
+    # Generate hash of parameters
+    hash_obj = hashlib.md5(param_str.encode())
+    dataset_hash = hash_obj.hexdigest()[:8]  # Use first 8 characters
+    
+    # Create dataset ID with type prefix
+    dataset_id = f"{data_type}_{dataset_hash}"
+    
+    return dataset_id
+
+def get_dataset_directory_structure(dataset_id, base_datasets_dir=None):
+    """
+    Get the directory structure for a dataset ID.
+    
+    Parameters:
+    -----------
+    dataset_id : str
+        The dataset ID
+    base_datasets_dir : str, optional
+        Base directory for datasets
+        
+    Returns:
+    --------
+    dict : Dictionary with all relevant paths for the dataset
+    """
+    if base_datasets_dir is None:
+        base_datasets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets")
+    
+    dataset_dir = os.path.join(base_datasets_dir, "IDs", dataset_id)
+    runs_dir = os.path.join(dataset_dir, "runs")
+    
+    return {
+        "dataset_dir": dataset_dir,
+        "runs_dir": runs_dir,
+        "dataset_csv": os.path.join(dataset_dir, f"{dataset_id}_dataset.csv"),
+        "best_runner_json": os.path.join(dataset_dir, f"best_runner_{dataset_id}.json")
+    }
+
+def get_run_directory_structure(dataset_id, timestamp=None, base_datasets_dir=None):
+    """
+    Get the directory structure for a specific run within a dataset.
+    
+    Parameters:
+    -----------
+    dataset_id : str
+        The dataset ID
+    timestamp : str, optional
+        Timestamp for the run (if None, generates current timestamp)
+    base_datasets_dir : str, optional
+        Base directory for datasets
+        
+    Returns:
+    --------
+    dict : Dictionary with all relevant paths for the run
+    """
+    import datetime
+    
+    if timestamp is None:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    dataset_paths = get_dataset_directory_structure(dataset_id, base_datasets_dir)
+    run_dir = os.path.join(dataset_paths["runs_dir"], timestamp)
+    
+    return {
+        "dataset_id": dataset_id,
+        "timestamp": timestamp,
+        "run_dir": run_dir,
+        "terminal_output": os.path.join(run_dir, "terminal_output.txt"),
+        "results_csv": os.path.join(run_dir, "test_results.csv"),
+        "dataset_paths": dataset_paths
+    }
+
+def find_latest_run_across_all_datasets(base_datasets_dir=None):
+    """
+    Find the latest experiment run across all datasets.
+    
+    Parameters:
+    -----------
+    base_datasets_dir : str, optional
+        Base directory for datasets
+        
+    Returns:
+    --------
+    dict : Information about the latest run or None if no runs found
+    """
+    import os
+    
+    if base_datasets_dir is None:
+        base_datasets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets")
+    
+    ids_dir = os.path.join(base_datasets_dir, "IDs")
+    
+    if not os.path.exists(ids_dir):
+        return None
+    
+    latest_run = None
+    latest_time = 0
+    
+    # Scan all dataset directories
+    for dataset_id in os.listdir(ids_dir):
+        dataset_dir = os.path.join(ids_dir, dataset_id)
+        if not os.path.isdir(dataset_dir):
+            continue
+            
+        runs_dir = os.path.join(dataset_dir, "runs")
+        if not os.path.exists(runs_dir):
+            continue
+            
+        # Check all run directories in this dataset
+        for run_timestamp in os.listdir(runs_dir):
+            run_dir = os.path.join(runs_dir, run_timestamp)
+            if not os.path.isdir(run_dir):
+                continue
+                
+            # Get modification time of the run directory
+            try:
+                mtime = os.path.getmtime(run_dir)
+                if mtime > latest_time:
+                    latest_time = mtime
+                    latest_run = {
+                        "dataset_id": dataset_id,
+                        "timestamp": run_timestamp,
+                        "run_dir": run_dir,
+                        "terminal_output": os.path.join(run_dir, "terminal_output.txt"),
+                        "results_csv": os.path.join(run_dir, "test_results.csv"),
+                        "dataset_dir": dataset_dir
+                    }
+            except OSError:
+                continue
+    
+    return latest_run
+
+def setup_real_dataset_structure(file_path, base_datasets_dir=None):
+    """
+    Set up directory structure for a real dataset file.
+    
+    Parameters:
+    -----------
+    file_path : str
+        Path to the real dataset file
+    base_datasets_dir : str, optional
+        Base directory for datasets
+        
+    Returns:
+    --------
+    data_info : dict
+        Dictionary with information about the dataset and paths
+    """
+    import shutil
+    
+    # Generate dataset ID for real data
+    dataset_id = generate_real_data_id(file_path)
+    
+    # Get directory structure
+    paths = get_dataset_directory_structure(dataset_id, base_datasets_dir)
+    
+    # Ensure directory exists
+    ensure_dir_exists(paths["dataset_csv"])  # This will create the directory for the file
+    
+    # Copy the original file to the dataset directory (if it's not already there)
+    if not os.path.exists(paths["dataset_csv"]):
+        shutil.copy2(file_path, paths["dataset_csv"])
+    
+    data_info = {
+        "dataset_id": dataset_id,
+        "dataset_dir": paths["dataset_dir"],
+        "file_path": paths["dataset_csv"],
+        "original_path": file_path,
+        "paths": paths
+    }
+    
+    return data_info
+
+def generate_real_data_id(file_path):
+    """
+    Generate a unique dataset ID for real data files.
+    
+    Parameters:
+    -----------
+    file_path : str
+        Path to the real data file
+        
+    Returns:
+    --------
+    dataset_id : str
+        Unique identifier for the dataset
+    """
+    # Get file stats for more uniqueness
+    try:
+        stat = os.stat(file_path)
+        file_info = f"{file_path}_{stat.st_size}_{stat.st_mtime}"
+    except:
+        file_info = file_path
+    
+    # Generate hash
+    hash_obj = hashlib.md5(file_info.encode())
+    dataset_hash = hash_obj.hexdigest()[:8]
+    
+    return f"real_{dataset_hash}"
 
 def resolve_path(path):
     """
@@ -41,7 +267,7 @@ def ensure_dir_exists(file_path):
     if directory and not os.path.exists(directory):
         os.makedirs(directory)
 
-def generate_synthetic_data(params, output_file):
+def generate_synthetic_data(params, output_file=None, base_datasets_dir=None):
     """
     Generate synthetic data for classification tasks and save it to a CSV file.
     
@@ -57,14 +283,34 @@ def generate_synthetic_data(params, output_file):
         - n_classes: Number of classes (for classification)
         - weights: List of class weights or None
         - random_state: Random seed for reproducibility
-    output_file : str
-        Name of the output CSV file
+    output_file : str, optional
+        Name of the output CSV file (if None, will use default naming)
+    base_datasets_dir : str, optional
+        Base directory for datasets (if None, will use script directory)
         
     Returns:
     --------
     data_info : dict
         Dictionary with information about the generated data and paths
     """
+    # Generate unique dataset ID
+    dataset_id = generate_dataset_id(params, "synth")
+    
+    # Set up directory structure
+    if base_datasets_dir is None:
+        base_datasets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets")
+    
+    # Create dataset-specific folder: datasets/IDs/{dataset_id}/
+    dataset_dir = os.path.join(base_datasets_dir, "IDs", dataset_id)
+    ensure_dir_exists(dataset_dir)
+    
+    # Set output file path
+    if output_file is None:
+        output_file = os.path.join(dataset_dir, f"{dataset_id}_dataset.csv")
+    else:
+        # If output_file is provided, put it in the dataset_dir
+        output_file = os.path.join(dataset_dir, os.path.basename(output_file))
+    
     # Resolve the output path
     resolved_output_file = resolve_path(output_file)
     
@@ -108,6 +354,8 @@ def generate_synthetic_data(params, output_file):
     }
     
     data_info = {
+        "dataset_id": dataset_id,
+        "dataset_dir": dataset_dir,
         "file_path": resolved_output_file,
         "stats": data_stats,
         "params": params

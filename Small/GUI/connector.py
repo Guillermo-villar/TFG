@@ -55,32 +55,33 @@ class ExperimentRunner:
             return "No experiment running."
     
     def get_latest_log_content(self):
-        """Finds the latest log file and returns its content."""
+        """Finds the latest log file across all datasets and returns its content."""
         if self.latest_log_file and os.path.exists(self.latest_log_file):
             with open(self.latest_log_file, 'r') as f:
                 return f.read()
 
-        results_dir = os.path.join(self.parent_dir, 'datasets', 'results')
-        if not os.path.isdir(results_dir):
-            return "Results directory not found."
-
+        # Import data_generator to use the new structure
         try:
-            # Find the most recent experiment directory
-            all_run_dirs = [d for d in os.listdir(results_dir) if os.path.isdir(os.path.join(results_dir, d))]
-            if not all_run_dirs:
-                return "No experiment logs found."
+            sys.path.insert(0, self.parent_dir)
+            import data_generator
             
-            latest_dir = max(all_run_dirs, key=lambda d: os.path.getmtime(os.path.join(results_dir, d)))
-            log_file = os.path.join(results_dir, latest_dir, 'terminal_output.txt')
-
+            # Find the latest run across all datasets
+            latest_run = data_generator.find_latest_run_across_all_datasets()
+            
+            if latest_run is None:
+                return "No experiment runs found in datasets/IDs/"
+            
+            log_file = latest_run["terminal_output"]
+            
             if os.path.exists(log_file):
                 self.latest_log_file = log_file
                 with open(log_file, 'r') as f:
                     return f.read()
             else:
-                return f"Log file not found in the latest run directory: {latest_dir}"
+                return f"Log file not found: {log_file}"
+                
         except Exception as e:
-            return f"Error reading log file: {str(e)}"
+            return f"Error finding latest experiment: {str(e)}"
 
     def find_csv_files(self):
         """Find all .csv files in the project directory"""

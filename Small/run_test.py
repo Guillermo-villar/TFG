@@ -15,8 +15,6 @@ import datetime
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-BEST_RUNNER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "best_runner.json")
-
 def ask_user_level():
     """Ask user to select capilaridad level (1-3)"""
     print("\nSelect analysis level:")
@@ -111,27 +109,32 @@ def signal_handler(sig, frame):
     logger.info("Any completed model runs have been saved to the results file.")
     sys.exit(0)
 
-def ask_use_previous_best():
-    if os.path.exists(BEST_RUNNER_FILE):
+def get_dataset_specific_best_runner_path(dataset_dir, dataset_id):
+    """Get the path for a dataset-specific best_runner file in the dataset directory"""
+    return os.path.join(dataset_dir, f"best_runner_{dataset_id}.json")
+
+def create_run_directory_for_dataset(dataset_id, base_datasets_dir=None):
+    """Create a timestamped run directory for a dataset and return paths"""
+    import datetime
+    
+    # Import data_generator module
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, script_dir)
+    import data_generator
+    
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_paths = data_generator.get_run_directory_structure(dataset_id, timestamp, base_datasets_dir)
+    
+    # Ensure run directory exists
+    ensure_dir_exists(run_paths["terminal_output"])  # This creates the run directory
+    
+    return run_paths
+
+def ask_use_previous_best(best_runner_file):
+    if os.path.exists(best_runner_file):
         resp = input("¿Quieres usar el último best_runner guardado de la fase 1? (s/n): ").strip().lower()
         return resp == "s"
     return False
-
-def backup_results_file(results_file_path):
-    if os.path.exists(results_file_path):
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = results_file_path.replace(
-            ".csv", f"_{timestamp}.csv"
-        )
-        os.rename(results_file_path, backup_path)
-        logger.info(f"Previous results file backed up as: {backup_path}")
-
-def create_timestamped_results_dir(base_results_path):
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_dir = os.path.dirname(base_results_path)
-    results_dir = os.path.join(base_dir, timestamp)
-    os.makedirs(results_dir, exist_ok=True)
-    return results_dir, timestamp
 
 def setup_logging(log_file_path, log_level="INFO"):
     """Configure logging to both console and file"""
@@ -206,49 +209,35 @@ def main(level=None, use_previous=None, study_mode="full_study"):
     
     # Create output configuration and ensure directory exists
     base_results_file_path = resolve_path(script_dir, config["output"]["results_file"])
-    results_dir, timestamp = create_timestamped_results_dir(base_results_file_path)
-    results_file_path = os.path.join(results_dir, "test_results.csv")
-    ensure_dir_exists(results_file_path)
-
-    # Configurar logging para guardar en archivo y mostrar en consola
-    log_txt_path = os.path.join(results_dir, "terminal_output.txt")
-    setup_logging(log_txt_path, config["output"]["log_level"])
-    
-    # Mensaje inicial para verificar que el logging funciona
-    logger.info(f"Iniciando ejecución de LSEnsemble tests... [{timestamp}]")
-
-    output_config = {
-        "csv_file": results_file_path,
-        "log_level": config["output"]["log_level"],
-        "max_seconds_per_model": max_timeout,
-    }
+    # No longer create timestamped results dir here - will be dataset-specific
     
     # Set dataset path (single CSV file)
     dataset_path = None
     dataset_params = {}
+    dataset_id = None
+    dataset_dir = None
     
     # Check if we need to generate new data or use existing dataset
     if config["data"]["generate_new"]:
         logger.info("Generating new synthetic dataset")
         
-        # Resolve path in data config
-        dataset_file = resolve_path(script_dir, config["data"]["dataset_file"])
-        ensure_dir_exists(os.path.dirname(dataset_file))  # <-- fix here
+        # Generate the dataset with new structure
+        data_info = data_generator.generate_synthetic_data(
+            params=config["data"]["params"]
+        )
+        
+        # Get the generated dataset path, ID, and directory
+        dataset_path = data_info['file_path']
+        dataset_id = data_info['dataset_id']
+        dataset_dir = data_info['dataset_dir']
         
         # Save the dataset parameters for logging
         dataset_params = config["data"]["params"].copy()
         
-        # Generate the dataset
-        data_info = data_generator.generate_synthetic_data(
-            params=config["data"]["params"],
-            output_file=dataset_file
-        )
-        
-        # Get the generated dataset path
-        dataset_path = data_info['file_path']
-        
         # Log dataset statistics
         logger.info(f"Dataset generated and saved to: {dataset_path}")
+        logger.info(f"Dataset ID: {dataset_id}")
+        logger.info(f"Dataset directory: {dataset_dir}")
         logger.info("Dataset statistics:")
         for metric, value in data_info["stats"].items():
             if isinstance(value, dict):
@@ -261,18 +250,52 @@ def main(level=None, use_previous=None, study_mode="full_study"):
         logger.info("Using external dataset from config")
         
         # Use dataset path from external_dataset
-        dataset_path = resolve_path(script_dir, config["data"]["external_dataset"]["train_data"])
+        original_dataset_path = resolve_path(script_dir, config["data"]["external_dataset"])
+        
+        # Set up directory structure for real data
+        data_info = data_generator.setup_real_dataset_structure(original_dataset_path)
+        
+        dataset_path = data_info['file_path']
+        dataset_id = data_info['dataset_id']
+        dataset_dir = data_info['dataset_dir']
         
         # Add information about the external dataset
         dataset_params = {
             "source": "external",
-            "path": dataset_path
+            "path": dataset_path,
+            "original_path": data_info['original_path']
         }
+        
+        logger.info(f"External dataset copied to: {dataset_path}")
+        logger.info(f"Dataset ID: {dataset_id}")
+        logger.info(f"Dataset directory: {dataset_dir}")
     
     # Validate that the dataset file exists
     if not dataset_path or not os.path.exists(dataset_path):
         logger.error(f"Dataset file {dataset_path} does not exist")
         sys.exit(1)
+    
+    # Create a new run directory for this experiment
+    run_paths = create_run_directory_for_dataset(dataset_id)
+    
+    # Set up run-specific file paths
+    results_file_path = run_paths["results_csv"]
+    log_txt_path = run_paths["terminal_output"]
+    
+    # Configure logging to save in run directory
+    setup_logging(log_txt_path, config["output"]["log_level"])
+    
+    # Initial message to verify logging works
+    logger.info(f"Iniciando ejecución de LSEnsemble tests para dataset {dataset_id}")
+    logger.info(f"Run directory: {run_paths['run_dir']}")
+    logger.info(f"Run timestamp: {run_paths['timestamp']}")
+    
+    # Create output configuration
+    output_config = {
+        "csv_file": results_file_path,
+        "log_level": config["output"]["log_level"],
+        "max_seconds_per_model": max_timeout,
+    }
     
     # Add test_size parameter from config
     test_size = config["data"]["params"].get("test_size", 0.2)
@@ -281,15 +304,19 @@ def main(level=None, use_previous=None, study_mode="full_study"):
     logger.info(f"Starting model training and evaluation on dataset: {dataset_path}")
     logger.info(f"Using test_size: {test_size} (will use {int((1-test_size)*100)}% for training, {int(test_size*100)}% for testing)")
     
+    # Get dataset-specific best_runner file path (stored at dataset level, not run level)
+    dataset_best_runner_file = get_dataset_specific_best_runner_path(dataset_dir, dataset_id)
+    logger.info(f"Using dataset-specific best_runner file: {dataset_best_runner_file}")
+    
     # Preguntar si se quiere usar el último best_runner guardado (or use provided value)
     if use_previous is None:
-        use_previous = ask_use_previous_best()
+        use_previous = ask_use_previous_best(dataset_best_runner_file)
     
     # Run test_LSEnsemble with the dataset path, test_size and dataset parameters
     try:
         results = test_module.run_test_from_csv(
             dataset_path, test_size, model_config, output_config, dataset_params,
-            use_previous_best_runner=use_previous, best_runner_file=BEST_RUNNER_FILE,
+            use_previous_best_runner=use_previous, best_runner_file=dataset_best_runner_file,
             study_mode=study_mode
         )
         logger.info(f"Testing completed, results saved to {output_config['csv_file']}")
