@@ -28,7 +28,7 @@ class ExperimentRunner:
         self.experiment_process = None
         self.latest_log_file = None
     
-    def run_experiment(self, level, use_previous, study_mode="full_study", data_source="synthetic", csv_path=None):
+    def run_experiment(self, level, study_mode="full_study", data_source="synthetic", csv_path=None):
         """Execute the experiment with given parameters"""
         try:
             # Modify config based on data source
@@ -37,7 +37,7 @@ class ExperimentRunner:
             # Reset latest log file on new run
             self.latest_log_file = None
             # Create and start a new process for the experiment
-            self.experiment_process = multiprocessing.Process(target=run_test.main, args=(level, use_previous, study_mode))
+            self.experiment_process = multiprocessing.Process(target=run_test.main, args=(level, study_mode))
             self.experiment_process.start()
             # We don't join, so the GUI remains responsive
             return "Experiment started in a new process."
@@ -135,6 +135,100 @@ class ExperimentRunner:
                 raise Exception("run_test.py does not have main() function")
         except ImportError as e:
             raise Exception(f"Cannot import run_test.py: {str(e)}")
+
+    def get_dataset_status(self, data_source="synthetic", csv_path=None):
+        """
+        Get the status of a dataset (new, in progress, or completed)
+        Returns a dictionary with detailed status information
+        """
+        try:
+            # Import required modules
+            sys.path.insert(0, self.parent_dir)
+            import data_generator
+            from test_LSEnsemble import load_study_progress
+            
+            # Generate dataset ID based on parameters
+            if data_source == "synthetic":
+                # Load current config to get synthetic data parameters
+                with open(self.config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+                params = config.get("data", {}).get("params", {})
+                dataset_id = data_generator.generate_dataset_id(params, "synth")
+            else:
+                # For real data, use the file path
+                params = {"file_path": csv_path}
+                dataset_id = data_generator.generate_dataset_id(params, "real")
+            
+            # Get dataset directory structure
+            dataset_paths = data_generator.get_dataset_directory_structure(dataset_id)
+            best_runner_file = dataset_paths["best_runner_json"]
+            
+            # Check if best_runner file exists
+            if not os.path.exists(best_runner_file):
+                return {
+                    "status": "new",
+                    "dataset_id": dataset_id,
+                    "message": "Dataset has not been studied before"
+                }
+            
+            # Load study progress
+            study_data = load_study_progress(best_runner_file)
+            
+            if not study_data or "execution_state" not in study_data:
+                # Old format or corrupted file
+                return {
+                    "status": "existing_old",
+                    "dataset_id": dataset_id,
+                    "message": "Dataset has old format study data",
+                    "best_runner": study_data.get("best_runner") if study_data else None
+                }
+            
+            exec_state = study_data["execution_state"]
+            best_runner = study_data["best_runner"]
+            capilaridad_config = study_data.get("capilaridad_config", {})
+            
+            # Determine status based on execution state
+            stage1_complete = exec_state.get("stage1_completed", False)
+            stage1_total = exec_state.get("stage1_total", 0)
+            stage1_done = exec_state.get("stage1_position", 0)
+            stage2_total = exec_state.get("stage2_total", 0)
+            stage2_done = exec_state.get("stage2_position", 0)
+            
+            status_info = {
+                "status": "existing",
+                "dataset_id": dataset_id,
+                "stage1_completed": stage1_complete,
+                "stage1_progress": f"{stage1_done}/{stage1_total}",
+                "stage2_progress": f"{stage2_done}/{stage2_total}",
+                "current_stage": exec_state.get("current_stage", 1),
+                "last_updated": exec_state.get("last_updated", "Unknown"),
+                "best_runner": best_runner,
+                "study_mode": exec_state.get("study_mode", "full_study"),
+                "capilaridad_config": capilaridad_config,
+                "best_metric_so_far": exec_state.get("best_metric_so_far")
+            }
+            
+            # Determine overall status
+            if stage1_complete and stage2_done >= stage2_total and stage2_total > 0:
+                status_info["overall_status"] = "complete"
+                status_info["message"] = "Study is complete"
+            elif stage1_complete:
+                status_info["overall_status"] = "stage2_in_progress"
+                status_info["message"] = "Stage 1 complete, Stage 2 in progress"
+            elif stage1_total > 0:
+                status_info["overall_status"] = "stage1_in_progress"
+                status_info["message"] = "Stage 1 in progress"
+            else:
+                status_info["overall_status"] = "unknown"
+                status_info["message"] = "Unknown status"
+            
+            return status_info
+            
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Error checking dataset status: {str(e)}"
+            }
 
 
 def main():

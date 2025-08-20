@@ -131,8 +131,56 @@ def create_run_directory_for_dataset(dataset_id, base_datasets_dir=None):
     return run_paths
 
 def ask_use_previous_best(best_runner_file):
+    """
+    Determine if we should use previous best_runner configuration.
+    When running from GUI, this will automatically continue where it left off.
+    When running from command line, it will still ask the user.
+    """
     if os.path.exists(best_runner_file):
-        resp = input("¿Quieres usar el último best_runner guardado de la fase 1? (s/n): ").strip().lower()
+        # Check if running in a GUI context (no stdin available)
+        try:
+            # Try to check if stdin is available
+            import sys
+            if not sys.stdin.isatty():
+                # Running in GUI context - automatically use previous configuration
+                print("GUI mode detected: automatically continuing from previous study")
+                return True
+        except:
+            # If any error checking stdin, assume GUI mode
+            print("Non-interactive mode detected: automatically continuing from previous study")
+            return True
+        
+        # Interactive mode - ask user as before
+        try:
+            with open(best_runner_file, 'r') as f:
+                data = json.load(f)
+            
+            if "study_progress" in data:
+                progress = data["study_progress"]
+                stage1_complete = progress.get("stage1_completed", False)
+                stage1_progress = f"{progress.get('completed_stage1_configs', 0)}/{progress.get('total_stage1_configs', 0)}"
+                stage2_progress = f"{progress.get('completed_stage2_configs', 0)}/{progress.get('total_stage2_configs', 0)}"
+                
+                print(f"\nPrevious study found for this dataset:")
+                print(f"  Stage 1 completed: {stage1_complete}")
+                print(f"  Stage 1 progress: {stage1_progress}")
+                print(f"  Stage 2 progress: {stage2_progress}")
+                print(f"  Last updated: {progress.get('last_updated', 'Unknown')}")
+                
+                if not stage1_complete or progress.get('completed_stage2_configs', 0) < progress.get('total_stage2_configs', 0):
+                    resp = input("¿Quieres continuar desde donde se quedó el estudio anterior? (s/n): ").strip().lower()
+                else:
+                    print("Previous study was completed.")
+                    resp = input("¿Quieres usar la configuración óptima encontrada? (s/n): ").strip().lower()
+            else:
+                # Old format
+                print("Previous best_runner found (old format).")
+                resp = input("¿Quieres usar el último best_runner guardado de la fase 1? (s/n): ").strip().lower()
+                
+        except (json.JSONDecodeError, KeyError):
+            print("Error reading previous study file.")
+            resp = input("¿Quieres usar el último best_runner guardado? (s/n): ").strip().lower()
+            
         return resp == "s"
     return False
 
@@ -164,7 +212,7 @@ def setup_logging(log_file_path, log_level="INFO"):
     
     logger.info(f"Logs serán guardados en: {log_file_path}")
 
-def main(level=None, use_previous=None, study_mode="full_study"):
+def main(level=None, study_mode="full_study"):
     # Set up signal handler for graceful interruption
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -197,11 +245,8 @@ def main(level=None, use_previous=None, study_mode="full_study"):
 
     if study_mode == "stage2_only":
         logger.info("Study mode is 'stage2_only'. Skipping stage 1 iterations.")
-        # You might want to load a default or best runner for stage 1
-        # For now, we assume a single default configuration for stage1
-        # Or that use_previous_best_runner will be True
-        if not use_previous:
-             logger.warning("Warning: 'stage2_only' is selected, but 'use_previous' is false. This may lead to unexpected behavior if a base model is required.")
+        # Stage 2 only mode - the system will handle whether to use previous results
+        # through the dataset status popup system
 
     
     # Import required modules
@@ -308,9 +353,9 @@ def main(level=None, use_previous=None, study_mode="full_study"):
     dataset_best_runner_file = get_dataset_specific_best_runner_path(dataset_dir, dataset_id)
     logger.info(f"Using dataset-specific best_runner file: {dataset_best_runner_file}")
     
-    # Preguntar si se quiere usar el último best_runner guardado (or use provided value)
-    if use_previous is None:
-        use_previous = ask_use_previous_best(dataset_best_runner_file)
+    # Ask if we should use the previous best_runner configuration
+    # This will show the appropriate popup based on dataset status
+    use_previous = ask_use_previous_best(dataset_best_runner_file)
     
     # Run test_LSEnsemble with the dataset path, test_size and dataset parameters
     try:

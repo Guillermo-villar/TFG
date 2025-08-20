@@ -251,7 +251,6 @@ class MLExperimentGUI:
         
         # GUI variables
         self.level_var = tk.IntVar(value=1)
-        self.use_previous_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value=self.texts["ready"])
         self.study_mode_var = tk.StringVar(value="full_study")
         self.data_source_var = tk.StringVar(value="synthetic")
@@ -336,9 +335,6 @@ class MLExperimentGUI:
         
         # Data source selection
         self.create_data_source_selection(main_frame)
-
-        # Options
-        self.create_options_section(main_frame)
 
         # Advanced options
         self.create_advanced_options(main_frame)
@@ -465,18 +461,10 @@ class MLExperimentGUI:
                 self.csv_path_dropdown['values'] = current_values
             self.csv_path_var.set(filepath)
     
-    def create_options_section(self, parent):
-        """Create options section"""
-        options_frame = ttk.LabelFrame(parent, text=self.texts["options"], padding="10")
-        options_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
-        
-        ttk.Checkbutton(options_frame, text=self.texts["use_previous"],
-                       variable=self.use_previous_var).pack(anchor='w')
-
     def create_advanced_options(self, parent):
         """Create advanced options section"""
         advanced_frame = ttk.LabelFrame(parent, text=self.texts["advanced_settings"], padding="10")
-        advanced_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        advanced_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         
         ttk.Radiobutton(advanced_frame, text=self.texts["study_base_ml"],
                        variable=self.study_mode_var, value="full_study").pack(anchor='w')
@@ -486,7 +474,7 @@ class MLExperimentGUI:
     def create_controls(self, parent):
         """Create control buttons and status"""
         control_frame = ttk.Frame(parent)
-        control_frame.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=(10, 10))
+        control_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(10, 10))
         control_frame.columnconfigure(1, weight=1)
         
         # Buttons
@@ -520,7 +508,7 @@ class MLExperimentGUI:
     def create_log_display(self, parent):
         """Create log display area"""
         log_frame = ttk.LabelFrame(parent, text=self.texts["execution_log"], padding="5")
-        log_frame.grid(row=6, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        log_frame.grid(row=5, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
@@ -584,10 +572,21 @@ class MLExperimentGUI:
             return
         
         level = self.level_var.get()
-        use_previous = self.use_previous_var.get()
         study_mode = self.study_mode_var.get()
         data_source = self.data_source_var.get()
         csv_path = self.csv_path_var.get() if data_source == "real" else None
+        
+        # Check dataset status before starting
+        try:
+            dataset_status = self.experiment_runner.get_dataset_status(data_source, csv_path)
+            
+            # Show appropriate popup based on dataset status
+            if not self.show_dataset_status_popup(dataset_status):
+                return  # User cancelled after seeing the status
+                
+        except Exception as e:
+            messagebox.showerror(self.texts["error"], f"Error checking dataset status: {str(e)}")
+            return
         
         self.is_running = True
         self.start_button.configure(state='disabled')
@@ -595,7 +594,7 @@ class MLExperimentGUI:
         self.status_var.set(self.texts["running"])
         
         self.main_log_text.delete(1.0, tk.END)
-        self.add_log_message(self.texts["starting_experiment"].format(level, use_previous, study_mode))
+        self.add_log_message(self.texts["starting_experiment"].format(level, study_mode))
         if data_source == 'real':
             self.add_log_message(self.texts["using_real_data"].format(csv_path))
         else:
@@ -604,7 +603,6 @@ class MLExperimentGUI:
         try:
             result = self.experiment_runner.run_experiment(
                 level=level, 
-                use_previous=use_previous, 
                 study_mode=study_mode,
                 data_source=data_source,
                 csv_path=csv_path
@@ -613,6 +611,163 @@ class MLExperimentGUI:
             self.check_experiment_status() # Start polling
         except Exception as e:
             self.experiment_error(str(e))
+
+    def show_dataset_status_popup(self, dataset_status):
+        """
+        Show dataset status popup and return True if user wants to continue
+        """
+        status = dataset_status.get("status", "unknown")
+        dataset_id = dataset_status.get("dataset_id", "unknown")
+        
+        if status == "new":
+            # New dataset popup
+            title = self.texts["new_dataset"]
+            message = f"{self.texts['new_dataset_message']}\n\n"
+            message += f"Dataset ID: {dataset_id}"
+            
+            return messagebox.askokcancel(title, message)
+            
+        elif status == "existing":
+            # Existing dataset with progress tracking
+            return self.show_existing_dataset_popup(dataset_status)
+            
+        elif status == "existing_old":
+            # Old format dataset
+            title = self.texts["existing_dataset"]
+            message = f"This dataset has been studied before (old format).\n\n"
+            message += f"Dataset ID: {dataset_id}\n"
+            message += f"A best runner configuration is available.\n\n"
+            message += "The experiment will use the previous best configuration."
+            
+            return messagebox.askokcancel(title, message)
+            
+        elif status == "error":
+            # Error checking status
+            messagebox.showerror(self.texts["error"], dataset_status.get("message", "Unknown error"))
+            return False
+            
+        else:
+            # Unknown status
+            return messagebox.askokcancel(self.texts["warning"], f"Unknown dataset status: {status}")
+
+    def show_existing_dataset_popup(self, dataset_status):
+        """Show detailed popup for existing dataset with progress tracking"""
+        
+        # Create custom dialog window
+        dialog = tk.Toplevel(self.root)
+        dialog.title(self.texts["dataset_status"])
+        dialog.geometry("600x500")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (600 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (500 // 2)
+        dialog.geometry(f"600x500+{x}+{y}")
+        
+        # Result variable
+        result = tk.BooleanVar(value=False)
+        
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding="20")
+        main_frame.pack(fill='both', expand=True)
+        
+        # Title
+        title_label = ttk.Label(main_frame, text=self.texts["existing_dataset"], 
+                               font=('Arial', 14, 'bold'))
+        title_label.pack(pady=(0, 15))
+        
+        # Dataset info
+        info_frame = ttk.LabelFrame(main_frame, text=self.texts["dataset_status"], padding="10")
+        info_frame.pack(fill='x', pady=(0, 15))
+        
+        ttk.Label(info_frame, text=f"Dataset ID: {dataset_status['dataset_id']}", 
+                 font=('Arial', 10, 'bold')).pack(anchor='w')
+        ttk.Label(info_frame, text=f"{self.texts['last_updated']}: {dataset_status['last_updated']}", 
+                 font=('Arial', 9)).pack(anchor='w')
+        
+        # Progress info
+        progress_frame = ttk.LabelFrame(main_frame, text=self.texts["progress_details"], padding="10")
+        progress_frame.pack(fill='x', pady=(0, 15))
+        
+        # Stage 1 status
+        stage1_frame = ttk.Frame(progress_frame)
+        stage1_frame.pack(fill='x', pady=(0, 10))
+        
+        stage1_status = self.texts["study_completed"] if dataset_status["stage1_completed"] else self.texts["in_progress"]
+        ttk.Label(stage1_frame, text=f"{self.texts['stage1_status']}: {stage1_status}", 
+                 font=('Arial', 10, 'bold')).pack(anchor='w')
+        ttk.Label(stage1_frame, text=f"{self.texts['configurations_tested']}: {dataset_status['stage1_progress']}", 
+                 font=('Arial', 9)).pack(anchor='w', padx=(20, 0))
+        
+        # Stage 2 status
+        stage2_frame = ttk.Frame(progress_frame)
+        stage2_frame.pack(fill='x', pady=(0, 10))
+        
+        stage2_total = int(dataset_status['stage2_progress'].split('/')[1]) if '/' in dataset_status['stage2_progress'] else 0
+        stage2_done = int(dataset_status['stage2_progress'].split('/')[0]) if '/' in dataset_status['stage2_progress'] else 0
+        
+        if stage2_total == 0:
+            stage2_status = self.texts["not_started"]
+        elif stage2_done >= stage2_total:
+            stage2_status = self.texts["study_completed"]
+        else:
+            stage2_status = self.texts["in_progress"]
+        
+        ttk.Label(stage2_frame, text=f"{self.texts['stage2_status']}: {stage2_status}", 
+                 font=('Arial', 10, 'bold')).pack(anchor='w')
+        ttk.Label(stage2_frame, text=f"{self.texts['configurations_tested']}: {dataset_status['stage2_progress']}", 
+                 font=('Arial', 9)).pack(anchor='w', padx=(20, 0))
+        
+        # Best architecture info
+        if dataset_status.get("best_runner"):
+            arch_frame = ttk.LabelFrame(main_frame, text=self.texts["best_architecture"], padding="10")
+            arch_frame.pack(fill='x', pady=(0, 15))
+            
+            best_runner = dataset_status["best_runner"]
+            arch_text = f"Experts: {best_runner.get('num_experts', 'N/A')}, "
+            arch_text += f"Hidden Size: {best_runner.get('hidden_size', 'N/A')}, "
+            arch_text += f"Dropout: {best_runner.get('drop_out', 'N/A')}, "
+            arch_text += f"Batch: {best_runner.get('n_batch', 'N/A')}, "
+            arch_text += f"Epochs: {best_runner.get('n_epoch', 'N/A')}"
+            
+            arch_label = ttk.Label(arch_frame, text=arch_text, font=('Arial', 9), wraplength=550)
+            arch_label.pack(anchor='w')
+        
+        # Resume message
+        overall_status = dataset_status.get("overall_status", "unknown")
+        if overall_status == "complete":
+            message = self.texts["study_complete_message"]
+        else:
+            message = self.texts["resume_message"]
+        
+        message_label = ttk.Label(main_frame, text=message, font=('Arial', 10), 
+                                 wraplength=550, justify='center')
+        message_label.pack(pady=15)
+        
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x', pady=(15, 0))
+        
+        def on_continue():
+            result.set(True)
+            dialog.destroy()
+        
+        def on_cancel():
+            result.set(False)
+            dialog.destroy()
+        
+        ttk.Button(button_frame, text=self.texts["continue"], 
+                  command=on_continue).pack(side='right', padx=(10, 0))
+        ttk.Button(button_frame, text="Cancel", 
+                  command=on_cancel).pack(side='right')
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        return result.get()
 
     def check_experiment_status(self):
         """Periodically check the status of the experiment process."""
