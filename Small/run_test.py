@@ -42,6 +42,9 @@ def build_config_from_level(base_config, level):
     model_config = {
         "model_selection": base_config["model"]["selection_method"],
         "n_simus": level_config["n_simulations"],
+        "capilaridad_level": level,
+        "max_seconds_per_model": level_config["max_seconds_per_model"],
+        "n_simulations": level_config["n_simulations"],
         "mlpbayes": base_config["model"]["mlpbayes"],
         "lsensemble": {
             "stage1": level_config["stage1"],

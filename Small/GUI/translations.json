@@ -79,7 +79,15 @@
     "complete_study": "Complete Study",
     "study_complete_message": "This dataset study is complete. All configurations have been tested.",
     "best_results": "Best Results Available",
-    "progress_details": "Progress Details"
+    "progress_details": "Progress Details",
+    "capilaridad_level": "Complexity Level (Capilaridad)",
+    "previous_capilaridad": "Previous Study Configuration",
+    "current_capilaridad": "Current Configuration",
+    "max_time_per_model": "Max time per model: {} seconds",
+    "simulations": "Simulations: {}",
+    "level_basic": "Basic",
+    "level_intermediate": "Intermediate", 
+    "level_advanced": "Advanced"
   },
   "es": {
     "title": "Lanzador de Experimentos ML",
@@ -161,6 +169,14 @@
     "complete_study": "Estudio Completo",
     "study_complete_message": "El estudio de este dataset está completo. Todas las configuraciones han sido probadas.",
     "best_results": "Mejores Resultados Disponibles",
-    "progress_details": "Detalles del Progreso"
+    "progress_details": "Detalles del Progreso",
+    "capilaridad_level": "Nivel de Complejidad (Capilaridad)",
+    "previous_capilaridad": "Configuración de Estudio Anterior",
+    "current_capilaridad": "Configuración Actual",
+    "max_time_per_model": "Tiempo máximo por modelo: {} segundos",
+    "simulations": "Simulaciones: {}",
+    "level_basic": "Básico",
+    "level_intermediate": "Intermedio",
+    "level_advanced": "Avanzado"
   }
 }

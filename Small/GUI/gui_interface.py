@@ -578,7 +578,8 @@ class MLExperimentGUI:
         
         # Check dataset status before starting
         try:
-            dataset_status = self.experiment_runner.get_dataset_status(data_source, csv_path)
+            current_level = self.level_var.get()
+            dataset_status = self.experiment_runner.get_dataset_status(data_source, csv_path, current_level)
             
             # Show appropriate popup based on dataset status
             if not self.show_dataset_status_popup(dataset_status):
@@ -656,7 +657,7 @@ class MLExperimentGUI:
         # Create custom dialog window
         dialog = tk.Toplevel(self.root)
         dialog.title(self.texts["dataset_status"])
-        dialog.geometry("600x500")
+        dialog.geometry("600x650")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
@@ -664,8 +665,8 @@ class MLExperimentGUI:
         # Center the dialog
         dialog.update_idletasks()
         x = (dialog.winfo_screenwidth() // 2) - (600 // 2)
-        y = (dialog.winfo_screenheight() // 2) - (500 // 2)
-        dialog.geometry(f"600x500+{x}+{y}")
+        y = (dialog.winfo_screenheight() // 2) - (650 // 2)
+        dialog.geometry(f"600x650+{x}+{y}")
         
         # Result variable
         result = tk.BooleanVar(value=False)
@@ -687,6 +688,33 @@ class MLExperimentGUI:
                  font=('Arial', 10, 'bold')).pack(anchor='w')
         ttk.Label(info_frame, text=f"{self.texts['last_updated']}: {dataset_status['last_updated']}", 
                  font=('Arial', 9)).pack(anchor='w')
+        
+        # Capilaridad information
+        capilaridad_frame = ttk.LabelFrame(main_frame, text=self.texts["capilaridad_level"], padding="10")
+        capilaridad_frame.pack(fill='x', pady=(0, 15))
+        
+        # Show previous capilaridad configuration
+        previous_capilaridad = dataset_status.get("previous_capilaridad_config", {})
+        previous_level = dataset_status.get("previous_level", "unknown")
+        
+        if previous_capilaridad:
+            level_names = {1: self.texts["level_basic"], 2: self.texts["level_intermediate"], 3: self.texts["level_advanced"]}
+            level_name = level_names.get(int(previous_level) if str(previous_level).isdigit() else 0, str(previous_level))
+            
+            ttk.Label(capilaridad_frame, text=f"{self.texts['previous_capilaridad']}: {level_name} (Level {previous_level})", 
+                     font=('Arial', 10, 'bold')).pack(anchor='w')
+            
+            max_time = previous_capilaridad.get("max_seconds_per_model", "N/A")
+            n_sims = previous_capilaridad.get("n_simulations", "N/A")
+            if max_time != "N/A":
+                ttk.Label(capilaridad_frame, text=self.texts["max_time_per_model"].format(max_time), 
+                         font=('Arial', 9)).pack(anchor='w', padx=(20, 0))
+            if n_sims != "N/A":
+                ttk.Label(capilaridad_frame, text=self.texts["simulations"].format(n_sims), 
+                         font=('Arial', 9)).pack(anchor='w', padx=(20, 0))
+        else:
+            ttk.Label(capilaridad_frame, text=f"{self.texts['previous_capilaridad']}: Level {previous_level}", 
+                     font=('Arial', 10, 'bold')).pack(anchor='w')
         
         # Progress info
         progress_frame = ttk.LabelFrame(main_frame, text=self.texts["progress_details"], padding="10")

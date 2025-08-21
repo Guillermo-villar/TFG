@@ -136,7 +136,7 @@ class ExperimentRunner:
         except ImportError as e:
             raise Exception(f"Cannot import run_test.py: {str(e)}")
 
-    def get_dataset_status(self, data_source="synthetic", csv_path=None):
+    def get_dataset_status(self, data_source="synthetic", csv_path=None, current_level=1):
         """
         Get the status of a dataset (new, in progress, or completed)
         Returns a dictionary with detailed status information
@@ -147,11 +147,14 @@ class ExperimentRunner:
             import data_generator
             from test_LSEnsemble import load_study_progress
             
+            # Load current config to get capilaridad configuration
+            with open(self.config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            
+            current_capilaridad_config = config.get("capilaridad_levels", {}).get(current_level, {})
+            
             # Generate dataset ID based on parameters
             if data_source == "synthetic":
-                # Load current config to get synthetic data parameters
-                with open(self.config_path, 'r') as f:
-                    config = yaml.safe_load(f)
                 params = config.get("data", {}).get("params", {})
                 dataset_id = data_generator.generate_dataset_id(params, "synth")
             else:
@@ -168,7 +171,9 @@ class ExperimentRunner:
                 return {
                     "status": "new",
                     "dataset_id": dataset_id,
-                    "message": "Dataset has not been studied before"
+                    "message": "Dataset has not been studied before",
+                    "current_capilaridad_config": current_capilaridad_config,
+                    "current_level": current_level
                 }
             
             # Load study progress
@@ -180,7 +185,9 @@ class ExperimentRunner:
                     "status": "existing_old",
                     "dataset_id": dataset_id,
                     "message": "Dataset has old format study data",
-                    "best_runner": study_data.get("best_runner") if study_data else None
+                    "best_runner": study_data.get("best_runner") if study_data else None,
+                    "current_capilaridad_config": current_capilaridad_config,
+                    "current_level": current_level
                 }
             
             exec_state = study_data["execution_state"]
@@ -194,6 +201,10 @@ class ExperimentRunner:
             stage2_total = exec_state.get("stage2_total", 0)
             stage2_done = exec_state.get("stage2_position", 0)
             
+            # Get previous capilaridad configuration
+            previous_capilaridad_config = capilaridad_config
+            previous_level = previous_capilaridad_config.get("level", "unknown")
+            
             status_info = {
                 "status": "existing",
                 "dataset_id": dataset_id,
@@ -205,6 +216,10 @@ class ExperimentRunner:
                 "best_runner": best_runner,
                 "study_mode": exec_state.get("study_mode", "full_study"),
                 "capilaridad_config": capilaridad_config,
+                "previous_capilaridad_config": previous_capilaridad_config,
+                "current_capilaridad_config": current_capilaridad_config,
+                "previous_level": previous_level,
+                "current_level": current_level,
                 "best_metric_so_far": exec_state.get("best_metric_so_far")
             }
             
@@ -227,7 +242,9 @@ class ExperimentRunner:
         except Exception as e:
             return {
                 "status": "error",
-                "message": f"Error checking dataset status: {str(e)}"
+                "message": f"Error checking dataset status: {str(e)}",
+                "current_capilaridad_config": current_capilaridad_config,
+                "current_level": current_level
             }
 
 
