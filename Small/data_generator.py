@@ -206,7 +206,7 @@ def setup_real_dataset_structure(file_path, base_datasets_dir=None):
 
 def generate_real_data_id(file_path):
     """
-    Generate a unique dataset ID for real data files.
+    Generate a unique dataset ID for real data files based on intrinsic dataset characteristics.
     
     Parameters:
     -----------
@@ -216,20 +216,65 @@ def generate_real_data_id(file_path):
     Returns:
     --------
     dataset_id : str
-        Unique identifier for the dataset
+        Unique identifier for the dataset based on its content and structure
     """
-    # Get file stats for more uniqueness
+    import pandas as pd
+    import numpy as np
+    
     try:
-        stat = os.stat(file_path)
-        file_info = f"{file_path}_{stat.st_size}_{stat.st_mtime}"
-    except:
-        file_info = file_path
-    
-    # Generate hash
-    hash_obj = hashlib.md5(file_info.encode())
-    dataset_hash = hash_obj.hexdigest()[:8]
-    
-    return f"real_{dataset_hash}"
+        df = pd.read_csv(file_path)
+        
+        # 1. Metadatos básicos del dataset
+        metadata = {
+            'shape': df.shape,
+            'columns': sorted(df.columns.tolist()),
+            'dtypes': {col: str(dtype) for col, dtype in sorted(df.dtypes.items())}
+        }
+        
+        # 2. Estadísticas rápidas y determinísticas
+        stats = {}
+        for col in df.columns:
+            if df[col].dtype in ['int64', 'float64', 'int32', 'float32']:
+                # Para columnas numéricas: media, std, min, max
+                stats[col] = {
+                    'mean': round(df[col].mean(), 6) if not df[col].isna().all() else None,
+                    'std': round(df[col].std(), 6) if not df[col].isna().all() else None,
+                    'min': df[col].min() if not df[col].isna().all() else None,
+                    'max': df[col].max() if not df[col].isna().all() else None
+                }
+            else:
+                # Para columnas categóricas: número de únicos y muestra de valores
+                unique_vals = df[col].dropna().unique()
+                stats[col] = {
+                    'unique_count': len(unique_vals),
+                    'sample_values': sorted([str(v) for v in unique_vals[:5]])  # Primeros 5 valores únicos
+                }
+        
+        # 3. Combinar todo de manera determinística
+        dataset_signature = {
+            'metadata': metadata,
+            'statistics': stats
+        }
+        
+        # 4. Generar hash
+        signature_str = str(sorted(dataset_signature.items()))
+        hash_obj = hashlib.md5(signature_str.encode())
+        dataset_hash = hash_obj.hexdigest()[:8]
+        
+        return f"real_{dataset_hash}"
+        
+    except Exception as e:
+        # Fallback al método anterior si hay error leyendo el CSV
+        print(f"Warning: Could not analyze dataset content ({e}), using file-based ID")
+        try:
+            stat = os.stat(file_path)
+            file_info = f"{file_path}_{stat.st_size}_{stat.st_mtime}"
+        except:
+            file_info = file_path
+        
+        hash_obj = hashlib.md5(file_info.encode())
+        dataset_hash = hash_obj.hexdigest()[:8]
+        return f"real_{dataset_hash}"
 
 def resolve_path(path):
     """

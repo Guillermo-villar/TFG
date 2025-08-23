@@ -347,24 +347,135 @@ class MLExperimentGUI:
     
     def create_level_selection(self, parent):
         """Create level selection widgets"""
-        level_frame = ttk.LabelFrame(parent, text=self.texts["level_section"], padding="10")
+        # Choose title and labels based on ML familiarity
+        if self.ml_familiar:
+            section_title = self.texts["level_section"]
+            levels = [
+                (1, self.texts["level_1"], self.texts["level_1_desc"]),
+                (2, self.texts["level_2"], self.texts["level_2_desc"]),
+                (3, self.texts["level_3"], self.texts["level_3_desc"])
+            ]
+        else:
+            section_title = self.texts["simple_level_section"]
+            levels = [
+                (1, self.texts["simple_level_1"], self.texts["simple_level_1_desc"]),
+                (2, self.texts["simple_level_2"], self.texts["simple_level_2_desc"]),
+                (3, self.texts["simple_level_3"], self.texts["simple_level_3_desc"])
+            ]
+        
+        level_frame = ttk.LabelFrame(parent, text=section_title, padding="10")
         level_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         level_frame.columnconfigure(0, weight=1)
         
-        levels = [
-            (1, self.texts["level_1"], self.texts["level_1_desc"]),
-            (2, self.texts["level_2"], self.texts["level_2_desc"]),
-            (3, self.texts["level_3"], self.texts["level_3_desc"])
-        ]
+        if self.ml_familiar:
+            # Traditional vertical layout for ML familiar users
+            for i, (level, title, description) in enumerate(levels):
+                frame = ttk.Frame(level_frame)
+                frame.grid(row=i, column=0, sticky=(tk.W, tk.E), pady=2)
+                
+                ttk.Radiobutton(frame, text=title, variable=self.level_var, 
+                               value=level).pack(anchor='w')
+                ttk.Label(frame, text=description, foreground='gray', 
+                         font=('Arial', 8)).pack(anchor='w', padx=(20, 0))
+        else:
+            # Intuitive horizontal slider-like layout for beginners
+            self.create_simple_level_selector(level_frame, levels)
+    
+    def create_simple_level_selector(self, parent, levels):
+        """Create a simple, intuitive level selector for non-ML users"""
+        # Instructions
+        instruction_label = ttk.Label(parent, 
+                                     text=self.texts["level_instruction"],
+                                     font=('Arial', 10, 'bold'))
+        instruction_label.grid(row=0, column=0, pady=(0, 15), sticky='w')
+        
+        # Create horizontal selector container
+        selector_container = ttk.Frame(parent)
+        selector_container.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        selector_container.columnconfigure(1, weight=1)
+        
+        # Create the three option frames in a horizontal line
+        options_frame = ttk.Frame(selector_container)
+        options_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        
+        # Configure equal column weights for balanced spacing
+        for i in range(3):
+            options_frame.columnconfigure(i, weight=1)
+        
+        # Create option buttons with better styling
+        self.level_buttons = []
+        button_colors = ["#FF5722", "#FF9800", "#4CAF50"]  # Red to Green gradient
+        button_texts = ["🚀", "⚖️", "🔬"]  # Icons for each level
         
         for i, (level, title, description) in enumerate(levels):
-            frame = ttk.Frame(level_frame)
-            frame.grid(row=i, column=0, sticky=(tk.W, tk.E), pady=2)
+            # Create frame for each option
+            option_frame = ttk.Frame(options_frame)
+            option_frame.grid(row=0, column=i, padx=10, pady=10, sticky='ew')
             
-            ttk.Radiobutton(frame, text=title, variable=self.level_var, 
-                           value=level).pack(anchor='w')
-            ttk.Label(frame, text=description, foreground='gray', 
-                     font=('Arial', 8)).pack(anchor='w', padx=(20, 0))
+            # Create styled button for selection
+            level_button = tk.Button(option_frame,
+                                   text=f"{button_texts[i]}\n{title}",
+                                   command=lambda l=level: self.select_level(l),
+                                   bg=button_colors[i],
+                                   fg="white",
+                                   font=("Arial", 10, "bold"),
+                                   relief="raised",
+                                   padx=15,
+                                   pady=10,
+                                   cursor="hand2",
+                                   width=12,
+                                   height=3,
+                                   wraplength=100)
+            level_button.pack(pady=(0, 5))
+            
+            # Store button reference for highlighting
+            self.level_buttons.append(level_button)
+            
+            # Description label
+            desc_label = ttk.Label(option_frame, 
+                                  text=description,
+                                  font=('Arial', 9),
+                                  foreground='gray',
+                                  justify='center',
+                                  wraplength=120)
+            desc_label.pack()
+            
+            # Create radio button (hidden) for form functionality
+            radio = ttk.Radiobutton(option_frame, 
+                                   variable=self.level_var, 
+                                   value=level,
+                                   command=lambda: self.update_level_buttons())
+            # Hide the radio button but keep it functional
+            radio.pack_forget()
+        
+        # Set default selection and update button states
+        self.level_var.set(2)  # Default to balanced
+        self.update_level_buttons()
+    
+    def select_level(self, level):
+        """Handle level selection from simple selector"""
+        self.level_var.set(level)
+        self.update_level_buttons()
+    
+    def update_level_buttons(self):
+        """Update button appearance based on selection"""
+        if hasattr(self, 'level_buttons'):
+            selected_level = self.level_var.get()
+            button_colors = ["#FF5722", "#FF9800", "#4CAF50"]
+            button_colors_selected = ["#D32F2F", "#F57C00", "#388E3C"]  # Darker versions
+            
+            for i, button in enumerate(self.level_buttons):
+                level = i + 1
+                if level == selected_level:
+                    # Highlight selected button
+                    button.config(bg=button_colors_selected[i], 
+                                 relief="sunken",
+                                 borderwidth=3)
+                else:
+                    # Normal state
+                    button.config(bg=button_colors[i], 
+                                 relief="raised",
+                                 borderwidth=2)
     
     def create_data_source_selection(self, parent):
         """Create data source selection widgets"""
@@ -403,9 +514,31 @@ class MLExperimentGUI:
         self.csv_path_dropdown = ttk.Combobox(right_frame, textvariable=self.csv_path_var, width=30)
         self.csv_path_dropdown.pack(anchor='w', expand=True, fill='x')
         self.csv_path_dropdown.set(self.texts["see_standard_tests"])
+        
+        # Add callback for when user selects a file from dropdown
+        self.csv_path_dropdown.bind('<<ComboboxSelected>>', self.on_csv_file_selected)
 
         self.populate_csv_files()
         self.csv_options_frame.pack(side='left', padx=(10, 0), expand=True, fill='x')
+
+    def on_csv_file_selected(self, event=None):
+        """Called when user selects a CSV file from the dropdown"""
+        selected_file = self.csv_path_var.get()
+        
+        # Check if it's a valid selection (all dropdown items are industry datasets)
+        if selected_file and selected_file.endswith('.csv'):
+            import os
+            if os.path.exists(selected_file):
+                # Automatically switch to real data mode when industry dataset is selected
+                self.data_source_var.set("real")
+                self.toggle_csv_options()  # Update UI state
+                
+                # Show friendly name for industry datasets
+                display_name = os.path.basename(selected_file)
+                self.add_log_message(f"Selected industry test dataset: {display_name}")
+            else:
+                # This shouldn't happen with industry datasets, but handle gracefully
+                self.add_log_message(f"Warning: Selected file does not exist: {selected_file}")
 
     def toggle_csv_options(self):
         """Enable/disable CSV options based on radio button selection"""
@@ -433,18 +566,32 @@ class MLExperimentGUI:
                         pass
 
     def populate_csv_files(self):
-        """Populate the dropdown with available CSV files"""
+        """Populate the dropdown with industry test datasets only"""
         try:
-            csv_files = self.experiment_runner.find_csv_files()
-            # Add MNIST placeholders
-            mnist_files = ["mnist_train.csv", "mnist_test.csv"]
-            for f in mnist_files:
-                if f not in csv_files:
-                    csv_files.insert(0, f)
+            # Only show industry test datasets in dropdown
+            import os
+            parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            industry_dir = os.path.join(parent_dir, "industry")
+            
+            csv_files = []
+            
+            if os.path.exists(industry_dir):
+                industry_files = []
+                for file in os.listdir(industry_dir):
+                    if file.endswith('.csv'):
+                        industry_path = os.path.join(industry_dir, file)
+                        industry_files.append(industry_path)
+                
+                # Add industry files (sorted for consistent order)
+                csv_files = sorted(industry_files)
             
             self.csv_path_dropdown['values'] = csv_files
             if csv_files:
-                self.csv_path_var.set(csv_files[0])
+                # Set to first industry dataset
+                first_file = csv_files[0]
+                self.csv_path_var.set(first_file)
+            else:
+                self.csv_path_var.set(self.texts.get("see_standard_tests", "No datasets available"))
         except Exception as e:
             messagebox.showerror(self.texts["error"], f"Failed to find CSV files: {e}")
 
@@ -455,11 +602,86 @@ class MLExperimentGUI:
             filetypes=((self.texts["csv_files"], "*.csv"), (self.texts["all_files"], "*.*"))
         )
         if filepath:
-            current_values = list(self.csv_path_dropdown['values'])
-            if filepath not in current_values:
-                current_values.append(filepath)
-                self.csv_path_dropdown['values'] = current_values
-            self.csv_path_var.set(filepath)
+            # Import required modules first
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+            from csv_preloading import CSVPreprocessor
+            
+            # Automatically switch to real data mode when external file is selected
+            self.data_source_var.set("real")
+            self.toggle_csv_options()  # Update UI state
+            self.add_log_message(f"Switched to real data mode for external file: {os.path.basename(filepath)}")
+            
+            # Initialize CSV preprocessor for automatic preprocessing
+            
+            try:
+                # Initialize preprocessor with GUI enabled
+                preprocessor = CSVPreprocessor(gui_enabled=True)
+                
+                # Check if preprocessing is needed
+                analysis = preprocessor.analyze_csv(filepath)
+                
+                # Create processed filename
+                base_name = os.path.splitext(os.path.basename(filepath))[0]
+                processed_path = os.path.join(os.path.dirname(filepath), f"{base_name}_processed.csv")
+                
+                # Show preprocessing dialog to user
+                proceed = messagebox.askyesno(
+                    "CSV Preprocessing", 
+                    f"The selected CSV file will be analyzed and preprocessed if needed.\n\n"
+                    f"Original file: {os.path.basename(filepath)}\n"
+                    f"Processed file: {os.path.basename(processed_path)}\n\n"
+                    f"Detected columns: {len(analysis['columns'])}\n"
+                    f"Binary columns found: {len(analysis['binary_columns'])}\n"
+                    f"Text columns found: {len(analysis.get('text_columns', []))}\n"
+                    f"Categorical columns found: {len(analysis.get('categorical_columns', []))}\n\n"
+                    f"Do you want to proceed with preprocessing?"
+                )
+                
+                if proceed:
+                    # Process the CSV file with GUI interaction
+                    result = preprocessor.process_csv_file(filepath, processed_path)
+                    
+                    if result['success']:
+                        final_path = result['output_path']
+                        self.add_log_message(f"CSV preprocessing completed: {os.path.basename(final_path)}")
+                        
+                        # Set the processed file as current selection (don't add to dropdown)
+                        self.csv_path_var.set(final_path)
+                        
+                        # Show preprocessing summary
+                        log_summary = "\n".join(result['processing_log'])
+                        if log_summary:
+                            messagebox.showinfo("Preprocessing Complete", 
+                                              f"Preprocessing completed successfully!\n\nSummary:\n{log_summary}")
+                    else:
+                        # Preprocessing failed
+                        error_msg = result.get('error', 'Unknown preprocessing error')
+                        messagebox.showerror("Preprocessing Failed", 
+                                           f"Preprocessing failed: {error_msg}\n\nUsing original file.")
+                        # Set original file as current selection (don't add to dropdown) 
+                        self.csv_path_var.set(filepath)
+                else:
+                    # User declined preprocessing, set original file as current selection (don't add to dropdown)
+                    self.csv_path_var.set(filepath)
+                    
+            except Exception as e:
+                # If preprocessing fails, fall back to original file
+                error_details = str(e)
+                if "text_columns" in error_details:
+                    error_msg = "CSV analysis error: Missing expected data structure. This has been fixed - please try again."
+                elif "encoding" in error_details:
+                    error_msg = f"CSV encoding error: {error_details}. Try saving the CSV with UTF-8 encoding."
+                elif "pandas" in error_details:
+                    error_msg = f"CSV format error: {error_details}. Please check that the file is a valid CSV."
+                else:
+                    error_msg = f"Preprocessing error: {error_details}"
+                    
+                messagebox.showerror("Preprocessing Error", 
+                                   f"Error during preprocessing:\n{error_msg}\n\nUsing original file.")
+                # Set original file as current selection (don't add to dropdown)
+                self.csv_path_var.set(filepath)
     
     def create_advanced_options(self, parent):
         """Create advanced options section"""
@@ -477,20 +699,63 @@ class MLExperimentGUI:
         control_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(10, 10))
         control_frame.columnconfigure(1, weight=1)
         
-        # Buttons
+        # Buttons with colors and icons
         button_frame = ttk.Frame(control_frame)
         button_frame.grid(row=0, column=0, sticky=tk.W)
         
-        self.start_button = ttk.Button(button_frame, text=self.texts["start_experiment"], 
-                                      command=self.start_experiment)
+        # Start button - Green with play icon
+        self.start_button = tk.Button(button_frame, 
+                                     text=f"▶ {self.texts['start_experiment']}", 
+                                     command=self.start_experiment,
+                                     bg="#4CAF50",  # Green
+                                     fg="white",
+                                     font=("Arial", 10, "bold"),
+                                     relief="raised",
+                                     padx=15,
+                                     pady=8,
+                                     cursor="hand2")
         self.start_button.pack(side='left', padx=(0, 10))
         
-        self.stop_button = ttk.Button(button_frame, text=self.texts["stop"], 
-                                     command=self.stop_experiment, state='disabled')
+        # Stop button - Red with stop icon
+        self.stop_button = tk.Button(button_frame, 
+                                    text=f"⏹ {self.texts['stop']}", 
+                                    command=self.stop_experiment, 
+                                    state='disabled',
+                                    bg="#f44336",  # Red
+                                    fg="white",
+                                    font=("Arial", 10, "bold"),
+                                    relief="raised",
+                                    padx=15,
+                                    pady=8,
+                                    cursor="hand2",
+                                    disabledforeground="#cccccc")
         self.stop_button.pack(side='left', padx=(0, 10))
         
-        ttk.Button(button_frame, text=self.texts["view_config"], 
-                  command=self.view_config).pack(side='left')
+        # View Config button - Blue
+        self.config_button = tk.Button(button_frame, 
+                                      text=f"⚙ {self.texts['view_config']}", 
+                                      command=self.view_config,
+                                      bg="#2196F3",  # Blue
+                                      fg="white",
+                                      font=("Arial", 10),
+                                      relief="raised",
+                                      padx=10,
+                                      pady=8,
+                                      cursor="hand2")
+        self.config_button.pack(side='left', padx=(0, 10))
+        
+        # Logs button - Orange with magnifying glass icon
+        self.view_logs_button = tk.Button(button_frame, 
+                                         text=f"🔍 {self.texts['view_logs']}", 
+                                         command=self.show_logs_window,
+                                         bg="#FF9800",  # Orange
+                                         fg="white",
+                                         font=("Arial", 10),
+                                         relief="raised",
+                                         padx=10,
+                                         pady=8,
+                                         cursor="hand2")
+        self.view_logs_button.pack(side="left", padx=(0, 10))
         
         # Status
         status_frame = ttk.Frame(control_frame)
@@ -500,10 +765,6 @@ class MLExperimentGUI:
         status_label = ttk.Label(status_frame, textvariable=self.status_var, 
                                 font=('Arial', 10, 'bold'))
         status_label.pack(side='left')
-        
-        # Logs button
-        self.view_logs_button = ttk.Button(button_frame, text=self.texts["view_logs"], command=self.show_logs_window)
-        self.view_logs_button.pack(side="left", padx=5)
 
     def create_log_display(self, parent):
         """Create log display area"""
@@ -590,8 +851,8 @@ class MLExperimentGUI:
             return
         
         self.is_running = True
-        self.start_button.configure(state='disabled')
-        self.stop_button.configure(state='normal')
+        self.start_button.configure(state='disabled', bg="#cccccc")  # Gray when disabled
+        self.stop_button.configure(state='normal', bg="#f44336")     # Red when enabled
         self.status_var.set(self.texts["running"])
         
         self.main_log_text.delete(1.0, tk.END)
@@ -633,14 +894,8 @@ class MLExperimentGUI:
             return self.show_existing_dataset_popup(dataset_status)
             
         elif status == "existing_old":
-            # Old format dataset
-            title = self.texts["existing_dataset"]
-            message = f"This dataset has been studied before (old format).\n\n"
-            message += f"Dataset ID: {dataset_id}\n"
-            message += f"A best runner configuration is available.\n\n"
-            message += "The experiment will use the previous best configuration."
-            
-            return messagebox.askokcancel(title, message)
+            # Old format dataset - create a simple dialog with delete option
+            return self.show_old_format_dataset_popup(dataset_status)
             
         elif status == "error":
             # Error checking status
@@ -650,6 +905,134 @@ class MLExperimentGUI:
         else:
             # Unknown status
             return messagebox.askokcancel(self.texts["warning"], f"Unknown dataset status: {status}")
+
+    def show_old_format_dataset_popup(self, dataset_status):
+        """Show popup for old format dataset with delete option"""
+        dataset_id = dataset_status.get("dataset_id", "unknown")
+        
+        # Create custom dialog window
+        dialog = tk.Toplevel(self.root)
+        dialog.title(self.texts["existing_dataset"])
+        dialog.geometry("500x400")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (500 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (400 // 2)
+        dialog.geometry(f"500x400+{x}+{y}")
+        
+        # Result variable
+        result = tk.BooleanVar(value=False)
+        
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding="20")
+        main_frame.pack(fill='both', expand=True)
+        
+        # Title
+        title_label = ttk.Label(main_frame, text=self.texts["existing_dataset"], 
+                               font=('Arial', 14, 'bold'))
+        title_label.pack(pady=(0, 15))
+        
+        # Dataset info
+        info_frame = ttk.LabelFrame(main_frame, text=self.texts["dataset_status"], padding="10")
+        info_frame.pack(fill='x', pady=(0, 15))
+        
+        ttk.Label(info_frame, text=f"Dataset ID: {dataset_id}", 
+                 font=('Arial', 10, 'bold')).pack(anchor='w')
+        ttk.Label(info_frame, text="Format: Old (legacy)", 
+                 font=('Arial', 9)).pack(anchor='w')
+        
+        # Description
+        desc_text = ("This dataset has been studied before using an older format.\n\n"
+                    "A best runner configuration is available from the previous study.\n\n"
+                    "The experiment will use the previous best configuration to continue "
+                    "from where it left off.")
+        
+        desc_label = ttk.Label(main_frame, text=desc_text, font=('Arial', 10), 
+                              wraplength=450, justify='left')
+        desc_label.pack(pady=15)
+        
+        # Best runner info if available
+        if dataset_status.get("best_runner"):
+            arch_frame = ttk.LabelFrame(main_frame, text=self.texts["best_architecture"], padding="10")
+            arch_frame.pack(fill='x', pady=(0, 15))
+            
+            best_runner = dataset_status["best_runner"]
+            if isinstance(best_runner, dict):
+                arch_text = f"Previous best configuration found with optimal parameters."
+                arch_label = ttk.Label(arch_frame, text=arch_text, font=('Arial', 9), wraplength=430)
+                arch_label.pack(anchor='w')
+        
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x', pady=(15, 0))
+        
+        def on_continue():
+            result.set(True)
+            dialog.destroy()
+        
+        def on_cancel():
+            result.set(False)
+            dialog.destroy()
+        
+        def on_delete_progress():
+            # Close current dialog first
+            dialog.destroy()
+            
+            # Show deletion confirmation and execute if confirmed
+            data_source = self.data_source_var.get()
+            csv_path = self.csv_path_var.get() if data_source == "real" else None
+            
+            self.delete_dataset_progress(data_source, csv_path, dataset_status)
+            
+            # Set result to False so the experiment doesn't start automatically
+            result.set(False)
+        
+        # Delete progress button (left side) - Red with trash icon
+        delete_button = tk.Button(button_frame, 
+                                 text=f"🗑 {self.texts['delete_progress']}", 
+                                 command=on_delete_progress,
+                                 bg="#e53e3e",  # Red
+                                 fg="white",
+                                 font=("Arial", 9, "bold"),
+                                 relief="raised",
+                                 padx=10,
+                                 pady=5,
+                                 cursor="hand2")
+        delete_button.pack(side='left')
+        
+        # Continue and Cancel buttons (right side)
+        continue_button = tk.Button(button_frame, 
+                                   text=f"✓ {self.texts['continue']}", 
+                                   command=on_continue,
+                                   bg="#4CAF50",  # Green
+                                   fg="white",
+                                   font=("Arial", 9, "bold"),
+                                   relief="raised",
+                                   padx=15,
+                                   pady=5,
+                                   cursor="hand2")
+        continue_button.pack(side='right', padx=(10, 0))
+        
+        cancel_button = tk.Button(button_frame, 
+                                 text="✗ Cancel", 
+                                 command=on_cancel,
+                                 bg="#9e9e9e",  # Gray
+                                 fg="white",
+                                 font=("Arial", 9),
+                                 relief="raised",
+                                 padx=15,
+                                 pady=5,
+                                 cursor="hand2")
+        cancel_button.pack(side='right')
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        return result.get()
 
     def show_existing_dataset_popup(self, dataset_status):
         """Show detailed popup for existing dataset with progress tracking"""
@@ -779,6 +1162,9 @@ class MLExperimentGUI:
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill='x', pady=(15, 0))
         
+        # Store dataset info for delete functionality
+        dialog.dataset_status = dataset_status
+        
         def on_continue():
             result.set(True)
             dialog.destroy()
@@ -787,15 +1173,107 @@ class MLExperimentGUI:
             result.set(False)
             dialog.destroy()
         
-        ttk.Button(button_frame, text=self.texts["continue"], 
-                  command=on_continue).pack(side='right', padx=(10, 0))
-        ttk.Button(button_frame, text="Cancel", 
-                  command=on_cancel).pack(side='right')
+        def on_delete_progress():
+            # Close current dialog first
+            dialog.destroy()
+            
+            # Show deletion confirmation and execute if confirmed
+            data_source = self.data_source_var.get()
+            csv_path = self.csv_path_var.get() if data_source == "real" else None
+            
+            self.delete_dataset_progress(data_source, csv_path, dataset_status)
+            
+            # Set result to False so the experiment doesn't start automatically
+            result.set(False)
+        
+        # Delete progress button (left side) - Red with trash icon
+        delete_button = tk.Button(button_frame, 
+                                 text=f"🗑 {self.texts['delete_progress']}", 
+                                 command=on_delete_progress,
+                                 bg="#e53e3e",  # Red
+                                 fg="white",
+                                 font=("Arial", 9, "bold"),
+                                 relief="raised",
+                                 padx=10,
+                                 pady=5,
+                                 cursor="hand2")
+        delete_button.pack(side='left')
+        
+        # Continue and Cancel buttons (right side)
+        continue_button = tk.Button(button_frame, 
+                                   text=f"✓ {self.texts['continue']}", 
+                                   command=on_continue,
+                                   bg="#4CAF50",  # Green
+                                   fg="white",
+                                   font=("Arial", 9, "bold"),
+                                   relief="raised",
+                                   padx=15,
+                                   pady=5,
+                                   cursor="hand2")
+        continue_button.pack(side='right', padx=(10, 0))
+        
+        cancel_button = tk.Button(button_frame, 
+                                 text="✗ Cancel", 
+                                 command=on_cancel,
+                                 bg="#9e9e9e",  # Gray
+                                 fg="white",
+                                 font=("Arial", 9),
+                                 relief="raised",
+                                 padx=15,
+                                 pady=5,
+                                 cursor="hand2")
+        cancel_button.pack(side='right')
         
         # Wait for dialog to close
         dialog.wait_window()
         
         return result.get()
+
+    def delete_dataset_progress(self, data_source, csv_path, dataset_status):
+        """Handle dataset progress deletion with confirmation"""
+        # Show confirmation dialog
+        title = self.texts["delete_progress_title"]
+        message = self.texts["delete_progress_message"]
+        
+        confirm = messagebox.askyesno(title, message, icon='warning')
+        
+        if not confirm:
+            return
+        
+        try:
+            # Call the deletion method from experiment runner
+            result = self.experiment_runner.delete_dataset_progress(data_source, csv_path)
+            
+            if result.get("success", False):
+                # Show success message
+                success_title = self.texts["progress_deleted"]
+                success_message = self.texts["progress_deleted_message"]
+                
+                if result.get("deleted_items"):
+                    success_message += f"\n\nDeleted items:\n• {chr(10).join(['• ' + item for item in result['deleted_items']])}"
+                
+                messagebox.showinfo(success_title, success_message)
+                
+                # Log the deletion
+                self.add_log_message(f"Progress deleted for dataset {result.get('dataset_id', 'unknown')}: {result.get('message', 'Success')}")
+                
+            else:
+                # Show error message
+                error_title = self.texts["delete_failed"]
+                error_message = result.get("message", "Unknown error occurred")
+                messagebox.showerror(error_title, f"{error_message}")
+                
+                # Log the error
+                self.add_log_message(f"Failed to delete progress: {error_message}")
+                
+        except Exception as e:
+            # Handle unexpected errors
+            error_title = self.texts["delete_failed"]
+            error_message = f"Unexpected error: {str(e)}"
+            messagebox.showerror(error_title, error_message)
+            
+            # Log the error
+            self.add_log_message(f"Error deleting progress: {error_message}")
 
     def check_experiment_status(self):
         """Periodically check the status of the experiment process."""
@@ -817,8 +1295,8 @@ class MLExperimentGUI:
     def experiment_completed(self, message):
         """Handle experiment completion"""
         self.is_running = False
-        self.start_button.configure(state='normal')
-        self.stop_button.configure(state='disabled')
+        self.start_button.configure(state='normal', bg="#4CAF50")   # Green when enabled
+        self.stop_button.configure(state='disabled', bg="#cccccc") # Gray when disabled
         self.status_var.set(self.texts["completed"])
         
         self.add_log_message(message)
@@ -827,8 +1305,8 @@ class MLExperimentGUI:
     def experiment_error(self, error_msg):
         """Handle experiment error"""
         self.is_running = False
-        self.start_button.configure(state='normal')
-        self.stop_button.configure(state='disabled')
+        self.start_button.configure(state='normal', bg="#4CAF50")   # Green when enabled
+        self.stop_button.configure(state='disabled', bg="#cccccc") # Gray when disabled
         self.status_var.set(self.texts["error"])
         
         self.add_log_message(f"ERROR: {error_msg}")
@@ -845,8 +1323,8 @@ class MLExperimentGUI:
                 self.add_log_message(f"Error stopping experiment: {str(e)}")
             
             self.is_running = False
-            self.start_button.configure(state='normal')
-            self.stop_button.configure(state='disabled')
+            self.start_button.configure(state='normal', bg="#4CAF50")   # Green when enabled
+            self.stop_button.configure(state='disabled', bg="#cccccc") # Gray when disabled
             self.status_var.set(self.texts["stopped"])
         else:
             messagebox.showinfo(self.texts["info"], self.texts["no_experiment"])

@@ -122,8 +122,8 @@ capilaridad_levels:
       - 0.15
 data:
   dataset_file: ./datasets/synthetic/synth_dataset.csv
-  external_dataset: mnist_test.csv
-  generate_new: true
+  external_dataset: /home/ubuntu/Downloads/archive/creditcard_processed.csv
+  generate_new: false
   params:
     n_classes: 2
     n_features: 20

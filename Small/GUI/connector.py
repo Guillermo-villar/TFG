@@ -136,6 +136,88 @@ class ExperimentRunner:
         except ImportError as e:
             raise Exception(f"Cannot import run_test.py: {str(e)}")
 
+    def delete_dataset_progress(self, data_source="synthetic", csv_path=None):
+        """
+        Delete all progress data for a dataset, allowing fresh start
+        
+        Parameters:
+        -----------
+        data_source : str
+            Type of data source ("synthetic" or "real")
+        csv_path : str, optional
+            Path to CSV file for real data
+            
+        Returns:
+        --------
+        dict : Result of deletion operation
+        """
+        try:
+            # Import required modules
+            sys.path.insert(0, self.parent_dir)
+            import data_generator
+            import shutil
+            
+            # Load current config to get dataset parameters
+            with open(self.config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            
+            # Generate dataset ID based on parameters
+            if data_source == "synthetic":
+                params = config.get("data", {}).get("params", {})
+                dataset_id = data_generator.generate_dataset_id(params, "synth")
+            else:
+                # For real data, use the improved content-based hash generation
+                if csv_path and os.path.exists(csv_path):
+                    dataset_id = data_generator.generate_real_data_id(csv_path)
+                else:
+                    # Fallback for non-existent files
+                    params = {"file_path": csv_path}
+                    dataset_id = data_generator.generate_dataset_id(params, "real")
+            
+            # Get dataset directory structure
+            dataset_paths = data_generator.get_dataset_directory_structure(dataset_id)
+            dataset_dir = dataset_paths["dataset_dir"]
+            best_runner_file = dataset_paths["best_runner_json"]
+            runs_dir = dataset_paths["runs_dir"]
+            
+            deleted_items = []
+            
+            # Delete best_runner JSON file if it exists
+            if os.path.exists(best_runner_file):
+                os.remove(best_runner_file)
+                deleted_items.append("Best runner configuration")
+            
+            # Delete runs directory if it exists
+            if os.path.exists(runs_dir):
+                shutil.rmtree(runs_dir)
+                deleted_items.append("All run history")
+            
+            # If the entire dataset directory is empty now (except for the dataset CSV), we can optionally remove it
+            # But we'll keep the dataset CSV file itself as it might be needed
+            
+            if deleted_items:
+                return {
+                    "success": True,
+                    "message": f"Successfully deleted: {', '.join(deleted_items)}",
+                    "dataset_id": dataset_id,
+                    "deleted_items": deleted_items
+                }
+            else:
+                return {
+                    "success": True,
+                    "message": "No progress data found to delete (dataset was already fresh)",
+                    "dataset_id": dataset_id,
+                    "deleted_items": []
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Error deleting progress: {str(e)}",
+                "dataset_id": dataset_id if 'dataset_id' in locals() else "unknown",
+                "error": str(e)
+            }
+
     def get_dataset_status(self, data_source="synthetic", csv_path=None, current_level=1):
         """
         Get the status of a dataset (new, in progress, or completed)
@@ -158,9 +240,13 @@ class ExperimentRunner:
                 params = config.get("data", {}).get("params", {})
                 dataset_id = data_generator.generate_dataset_id(params, "synth")
             else:
-                # For real data, use the file path
-                params = {"file_path": csv_path}
-                dataset_id = data_generator.generate_dataset_id(params, "real")
+                # For real data, use the improved content-based hash generation
+                if csv_path and os.path.exists(csv_path):
+                    dataset_id = data_generator.generate_real_data_id(csv_path)
+                else:
+                    # Fallback for non-existent files
+                    params = {"file_path": csv_path}
+                    dataset_id = data_generator.generate_dataset_id(params, "real")
             
             # Get dataset directory structure
             dataset_paths = data_generator.get_dataset_directory_structure(dataset_id)
