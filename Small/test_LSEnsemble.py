@@ -218,6 +218,14 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
         logger.info(f"  Best metric so far: {exec_state['best_metric_so_far']}")
         logger.info(f"  Last updated: {exec_state['last_updated']}")
     
+    # Shuffle the DataFrame before splitting
+    random_state = data_stats_extra.get("random_state") if data_stats_extra else None
+    if random_state is not None:
+        logger.info(f"Shuffling dataset with random_state={random_state}")
+        df = df.sample(frac=1, random_state=random_state).reset_index(drop=True)
+    else:
+        logger.warning("No random_state found in data_params, dataset will not be shuffled reproducibly.")
+
     # Split dataset into train and test based on test_size
     total_samples = len(df)
     split_idx = int((1 - test_size) * total_samples)

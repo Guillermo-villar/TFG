@@ -329,7 +329,7 @@ class ExperimentRunner:
             return {
                 "status": "error",
                 "message": f"Error checking dataset status: {str(e)}",
-                "current_capilaridad_config": current_capilaridad_config,
+                "current_capilaridad_config": current_capilaridad_config if 'current_capilaridad_config' in locals() else {},
                 "current_level": current_level
             }
 

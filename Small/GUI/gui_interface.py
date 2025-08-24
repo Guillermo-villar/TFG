@@ -255,7 +255,11 @@ class MLExperimentGUI:
         self.study_mode_var = tk.StringVar(value="full_study")
         self.data_source_var = tk.StringVar(value="synthetic")
         self.csv_path_var = tk.StringVar(value="")
+        self.csv_full_path_display_var = tk.StringVar(value="")
         self.popup_log_text = None  # For the popup window
+        
+        self.full_csv_path = ""
+        self.csv_file_map = {}
         
         # Store references to widgets that need translation updates
         self.title_label = None
@@ -511,9 +515,12 @@ class MLExperimentGUI:
         # New label for standardized tests
         ttk.Label(right_frame, text=self.texts["standard_dataset"]).pack(anchor='w')
 
-        self.csv_path_dropdown = ttk.Combobox(right_frame, textvariable=self.csv_path_var, width=30)
+        self.csv_path_dropdown = ttk.Combobox(right_frame, textvariable=self.csv_path_var, width=30, state="readonly")
         self.csv_path_dropdown.pack(anchor='w', expand=True, fill='x')
-        self.csv_path_dropdown.set(self.texts["see_standard_tests"])
+        
+        # Label to display the full path of the selected file
+        self.full_path_label = ttk.Label(right_frame, textvariable=self.csv_full_path_display_var, wraplength=400, foreground="gray")
+        self.full_path_label.pack(anchor='w', expand=True, fill='x', pady=(5,0))
         
         # Add callback for when user selects a file from dropdown
         self.csv_path_dropdown.bind('<<ComboboxSelected>>', self.on_csv_file_selected)
@@ -523,22 +530,22 @@ class MLExperimentGUI:
 
     def on_csv_file_selected(self, event=None):
         """Called when user selects a CSV file from the dropdown"""
-        selected_file = self.csv_path_var.get()
+        selected_display_name = self.csv_path_var.get()
         
-        # Check if it's a valid selection (all dropdown items are industry datasets)
-        if selected_file and selected_file.endswith('.csv'):
-            import os
-            if os.path.exists(selected_file):
-                # Automatically switch to real data mode when industry dataset is selected
-                self.data_source_var.set("real")
-                self.toggle_csv_options()  # Update UI state
-                
-                # Show friendly name for industry datasets
-                display_name = os.path.basename(selected_file)
-                self.add_log_message(f"Selected industry test dataset: {display_name}")
-            else:
-                # This shouldn't happen with industry datasets, but handle gracefully
-                self.add_log_message(f"Warning: Selected file does not exist: {selected_file}")
+        # Get the full path from the map
+        self.full_csv_path = self.csv_file_map.get(selected_display_name, "")
+        self.csv_full_path_display_var.set(self.full_csv_path)
+
+        if self.full_csv_path and os.path.exists(self.full_csv_path):
+            # Automatically switch to real data mode when industry dataset is selected
+            self.data_source_var.set("real")
+            self.toggle_csv_options()  # Update UI state
+            
+            # Show friendly name for industry datasets
+            self.add_log_message(f"Selected industry test dataset: {selected_display_name}")
+        else:
+            # This shouldn't happen with industry datasets, but handle gracefully
+            self.add_log_message(f"Warning: Selected file does not exist: {self.full_csv_path}")
 
     def toggle_csv_options(self):
         """Enable/disable CSV options based on radio button selection"""
@@ -573,23 +580,28 @@ class MLExperimentGUI:
             parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             industry_dir = os.path.join(parent_dir, "industry")
             
-            csv_files = []
+            self.csv_file_map = {}
             
             if os.path.exists(industry_dir):
                 industry_files = []
                 for file in os.listdir(industry_dir):
                     if file.endswith('.csv'):
-                        industry_path = os.path.join(industry_dir, file)
-                        industry_files.append(industry_path)
+                        full_path = os.path.join(industry_dir, file)
+                        display_name = os.path.basename(file)
+                        self.csv_file_map[display_name] = full_path
+                        industry_files.append(display_name)
                 
                 # Add industry files (sorted for consistent order)
-                csv_files = sorted(industry_files)
-            
-            self.csv_path_dropdown['values'] = csv_files
-            if csv_files:
-                # Set to first industry dataset
-                first_file = csv_files[0]
-                self.csv_path_var.set(first_file)
+                display_names = sorted(industry_files)
+                self.csv_path_dropdown['values'] = display_names
+                if display_names:
+                    # Set to first industry dataset
+                    first_display_name = display_names[0]
+                    self.csv_path_var.set(first_display_name)
+                    self.full_csv_path = self.csv_file_map[first_display_name]
+                    self.csv_full_path_display_var.set(self.full_csv_path)
+                else:
+                    self.csv_path_var.set(self.texts.get("see_standard_tests", "No datasets available"))
             else:
                 self.csv_path_var.set(self.texts.get("see_standard_tests", "No datasets available"))
         except Exception as e:
@@ -835,7 +847,7 @@ class MLExperimentGUI:
         level = self.level_var.get()
         study_mode = self.study_mode_var.get()
         data_source = self.data_source_var.get()
-        csv_path = self.csv_path_var.get() if data_source == "real" else None
+        csv_path = self.full_csv_path if data_source == "real" else None
         
         # Check dataset status before starting
         try:
@@ -1327,45 +1339,6 @@ class MLExperimentGUI:
             self.stop_button.configure(state='disabled', bg="#cccccc") # Gray when disabled
             self.status_var.set(self.texts["stopped"])
         else:
-            messagebox.showinfo(self.texts["info"], self.texts["no_experiment"])
-    
-    def add_log_message(self, message):
-        """Add message to log display"""
-        self.main_log_text.insert(tk.END, f"{message}\n")
-        self.main_log_text.see(tk.END)
-    
-    def clear_log(self):
-        """Clear the log display"""
-        self.main_log_text.delete(1.0, tk.END)
-    
-    def view_config(self):
-        """Show current configuration"""
-        try:
-            result = self.experiment_runner.get_config_preview()
-            if result:
-                # Create a simple dialog to show config
-                config_window = tk.Toplevel(self.root)
-                config_window.title(self.texts["config_preview"])
-                config_window.geometry("500x400")
-                
-                text_widget = scrolledtext.ScrolledText(config_window, wrap=tk.WORD)
-                text_widget.pack(fill='both', expand=True, padx=10, pady=10)
-                
-                text_widget.insert(1.0, result)
-                text_widget.configure(state='disabled')
-            else:
-                messagebox.showwarning(self.texts["warning"], self.texts["config_not_found"])
-        except Exception as e:
-            messagebox.showerror(self.texts["error"], f"Error reading configuration: {e}")
-    
-    def on_closing(self):
-        """Handle window closing"""
-        if self.is_running:
-            if messagebox.askokcancel("Quit", self.texts["quit_confirm"]):
-                self.stop_experiment()
-                self.root.destroy()
-        else:
-            self.root.destroy()
             messagebox.showinfo(self.texts["info"], self.texts["no_experiment"])
     
     def add_log_message(self, message):

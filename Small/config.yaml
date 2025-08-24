@@ -122,7 +122,7 @@ capilaridad_levels:
       - 0.15
 data:
   dataset_file: ./datasets/synthetic/synth_dataset.csv
-  external_dataset: /home/ubuntu/Downloads/archive/creditcard_processed.csv
+  external_dataset: /home/ubuntu/Downloads/Code/NeonGenesis/Small/industry/heart_disease.csv
   generate_new: false
   params:
     n_classes: 2
