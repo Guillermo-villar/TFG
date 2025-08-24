@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 import json
 import os
+import datetime
 
 class LanguageSetupWindow:
     """Initial window for language and ML familiarity selection"""
@@ -867,7 +868,11 @@ class MLExperimentGUI:
         self.stop_button.configure(state='normal', bg="#f44336")     # Red when enabled
         self.status_var.set(self.texts["running"])
         
-        self.main_log_text.delete(1.0, tk.END)
+        # Add separator with timestamp instead of clearing log to stack experiments
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.add_log_message("=" * 60)
+        self.add_log_message(f"NEW EXPERIMENT - {timestamp}")
+        self.add_log_message("=" * 60)
         self.add_log_message(self.texts["starting_experiment"].format(level, study_mode))
         if data_source == 'real':
             self.add_log_message(self.texts["using_real_data"].format(csv_path))
@@ -1312,6 +1317,13 @@ class MLExperimentGUI:
         self.status_var.set(self.texts["completed"])
         
         self.add_log_message(message)
+        
+        # Add completion separator with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.add_log_message("-" * 60)
+        self.add_log_message(f"EXPERIMENT COMPLETED - {timestamp}")
+        self.add_log_message("-" * 60)
+        
         messagebox.showinfo(self.texts["success"], message)
     
     def experiment_error(self, error_msg):
@@ -1322,6 +1334,13 @@ class MLExperimentGUI:
         self.status_var.set(self.texts["error"])
         
         self.add_log_message(f"ERROR: {error_msg}")
+        
+        # Add error separator with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.add_log_message("-" * 60)
+        self.add_log_message(f"EXPERIMENT ERROR - {timestamp}")
+        self.add_log_message("-" * 60)
+        
         messagebox.showerror(self.texts["error"], error_msg)
     
     def stop_experiment(self):
@@ -1333,6 +1352,12 @@ class MLExperimentGUI:
                 self.add_log_message(result)
             except Exception as e:
                 self.add_log_message(f"Error stopping experiment: {str(e)}")
+            
+            # Add end separator with timestamp
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.add_log_message("-" * 60)
+            self.add_log_message(f"EXPERIMENT ENDED - {timestamp}")
+            self.add_log_message("-" * 60)
             
             self.is_running = False
             self.start_button.configure(state='normal', bg="#4CAF50")   # Green when enabled
