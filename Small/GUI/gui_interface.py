@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 import json
 import os
+import datetime
 
 class LanguageSetupWindow:
     """Initial window for language and ML familiarity selection"""
@@ -258,7 +259,9 @@ class MLExperimentGUI:
         self.csv_full_path_display_var = tk.StringVar(value="")
         self.popup_log_text = None  # For the popup window
         
-        self.full_csv_path = ""
+        # Separate variables for industry datasets (just for display) and user files (for actual use)
+        self.industry_csv_path = ""  # Only for industry dataset selection
+        self.user_csv_path = ""      # Only for user-selected files
         self.csv_file_map = {}
         
         # Store references to widgets that need translation updates
@@ -529,27 +532,36 @@ class MLExperimentGUI:
         self.csv_options_frame.pack(side='left', padx=(10, 0), expand=True, fill='x')
 
     def on_csv_file_selected(self, event=None):
-        """Called when user selects a CSV file from the dropdown"""
+        """Called when user selects a CSV file from the dropdown (industry datasets only for demo)"""
         selected_display_name = self.csv_path_var.get()
         
-        # Get the full path from the map
-        self.full_csv_path = self.csv_file_map.get(selected_display_name, "")
-        self.csv_full_path_display_var.set(self.full_csv_path)
-
-        if self.full_csv_path and os.path.exists(self.full_csv_path):
-            # Automatically switch to real data mode when industry dataset is selected
-            self.data_source_var.set("real")
-            self.toggle_csv_options()  # Update UI state
-            
-            # Show friendly name for industry datasets
-            self.add_log_message(f"Selected industry test dataset: {selected_display_name}")
+        # Clear user manual selection when selecting industry dataset
+        self.user_csv_path = ""
+        
+        # Get the full path from the map (this is just for industry datasets display)
+        self.industry_csv_path = self.csv_file_map.get(selected_display_name, "")
+        
+        # For industry datasets: show only filename in dropdown, full path in display label
+        if self.industry_csv_path and os.path.exists(self.industry_csv_path):
+            # Show just the filename in the log message  
+            self.add_log_message(f"Selected industry test dataset: {selected_display_name} (for demo/testing only)")
+            # Show full path in the display label below dropdown
+            self.csv_full_path_display_var.set(self.industry_csv_path)
         else:
             # This shouldn't happen with industry datasets, but handle gracefully
-            self.add_log_message(f"Warning: Selected file does not exist: {self.full_csv_path}")
+            self.add_log_message(f"Warning: Selected file does not exist: {self.industry_csv_path}")
+            self.csv_full_path_display_var.set("")
 
     def toggle_csv_options(self):
         """Enable/disable CSV options based on radio button selection"""
         is_real_data = self.data_source_var.get() == "real"
+        
+        # Clear previous selections when switching modes
+        if not is_real_data:
+            # Switching to synthetic data - clear all CSV selections
+            self.industry_csv_path = ""
+            self.user_csv_path = ""
+            self.csv_full_path_display_var.set("")
         
         # Iterate over child widgets of csv_options_frame to enable/disable them
         for child in self.csv_options_frame.winfo_children():
@@ -595,11 +607,8 @@ class MLExperimentGUI:
                 display_names = sorted(industry_files)
                 self.csv_path_dropdown['values'] = display_names
                 if display_names:
-                    # Set to first industry dataset
-                    first_display_name = display_names[0]
-                    self.csv_path_var.set(first_display_name)
-                    self.full_csv_path = self.csv_file_map[first_display_name]
-                    self.csv_full_path_display_var.set(self.full_csv_path)
+                    # Don't auto-select any dataset - let user choose
+                    self.csv_path_var.set(self.texts.get("see_standard_tests", "Select a dataset to test..."))
                 else:
                     self.csv_path_var.set(self.texts.get("see_standard_tests", "No datasets available"))
             else:
@@ -619,6 +628,9 @@ class MLExperimentGUI:
             import os
             sys.path.append(os.path.dirname(os.path.abspath(__file__)))
             from csv_preloading import CSVPreprocessor
+            
+            # Clear industry dataset selection when selecting manual file
+            self.industry_csv_path = ""
             
             # Automatically switch to real data mode when external file is selected
             self.data_source_var.set("real")
@@ -659,8 +671,10 @@ class MLExperimentGUI:
                         final_path = result['output_path']
                         self.add_log_message(f"CSV preprocessing completed: {os.path.basename(final_path)}")
                         
-                        # Set the processed file as current selection (don't add to dropdown)
-                        self.csv_path_var.set(final_path)
+                        # Set the processed file as the user's selected file
+                        self.user_csv_path = final_path
+                        self.csv_path_var.set(final_path)  # Show full path for manual files
+                        self.csv_full_path_display_var.set(final_path)  # Show full path in display label
                         
                         # Show preprocessing summary
                         log_summary = "\n".join(result['processing_log'])
@@ -672,11 +686,15 @@ class MLExperimentGUI:
                         error_msg = result.get('error', 'Unknown preprocessing error')
                         messagebox.showerror("Preprocessing Failed", 
                                            f"Preprocessing failed: {error_msg}\n\nUsing original file.")
-                        # Set original file as current selection (don't add to dropdown) 
-                        self.csv_path_var.set(filepath)
+                        # Set original file as the user's selected file
+                        self.user_csv_path = filepath
+                        self.csv_path_var.set(filepath)  # Show full path for manual files
+                        self.csv_full_path_display_var.set(filepath)  # Show full path in display label
                 else:
-                    # User declined preprocessing, set original file as current selection (don't add to dropdown)
-                    self.csv_path_var.set(filepath)
+                    # User declined preprocessing, set original file as the user's selected file
+                    self.user_csv_path = filepath
+                    self.csv_path_var.set(filepath)  # Show full path for manual files
+                    self.csv_full_path_display_var.set(filepath)  # Show full path in display label
                     
             except Exception as e:
                 # If preprocessing fails, fall back to original file
@@ -692,8 +710,10 @@ class MLExperimentGUI:
                     
                 messagebox.showerror("Preprocessing Error", 
                                    f"Error during preprocessing:\n{error_msg}\n\nUsing original file.")
-                # Set original file as current selection (don't add to dropdown)
-                self.csv_path_var.set(filepath)
+                # Set original file as the user's selected file
+                self.user_csv_path = filepath
+                self.csv_path_var.set(filepath)  # Show full path for manual files
+                self.csv_full_path_display_var.set(filepath)  # Show full path in display label
     
     def create_advanced_options(self, parent):
         """Create advanced options section"""
@@ -847,7 +867,24 @@ class MLExperimentGUI:
         level = self.level_var.get()
         study_mode = self.study_mode_var.get()
         data_source = self.data_source_var.get()
-        csv_path = self.full_csv_path if data_source == "real" else None
+        # Use either industry dataset or user's selected file path
+        csv_path = None
+        csv_source_type = None
+        if data_source == "real":
+            if self.industry_csv_path:
+                csv_path = self.industry_csv_path
+                csv_source_type = "industry"
+            elif self.user_csv_path:
+                csv_path = self.user_csv_path  
+                csv_source_type = "manual"
+        
+        # Validate that user has selected a file when using real data
+        if data_source == "real" and not csv_path:
+            messagebox.showwarning(
+                self.texts["warning"], 
+                "Please select a CSV file using the dropdown or 'Select File' button before running with real data."
+            )
+            return
         
         # Check dataset status before starting
         try:
@@ -867,10 +904,21 @@ class MLExperimentGUI:
         self.stop_button.configure(state='normal', bg="#f44336")     # Red when enabled
         self.status_var.set(self.texts["running"])
         
-        self.main_log_text.delete(1.0, tk.END)
+        # Add separator with timestamp instead of clearing log to stack experiments
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.add_log_message("=" * 60)
+        self.add_log_message(f"NEW EXPERIMENT - {timestamp}")
+        self.add_log_message("=" * 60)
         self.add_log_message(self.texts["starting_experiment"].format(level, study_mode))
         if data_source == 'real':
-            self.add_log_message(self.texts["using_real_data"].format(csv_path))
+            if csv_source_type == "industry":
+                filename = os.path.basename(csv_path)
+                self.add_log_message(f"Using industry test dataset: {filename}")
+                self.add_log_message(f"Full path: {csv_path}")
+            elif csv_source_type == "manual":
+                self.add_log_message(f"Using manually selected file: {csv_path}")
+            else:
+                self.add_log_message(self.texts["using_real_data"].format(csv_path))
         else:
             self.add_log_message(self.texts["using_synthetic_data"])
 
@@ -1312,6 +1360,13 @@ class MLExperimentGUI:
         self.status_var.set(self.texts["completed"])
         
         self.add_log_message(message)
+        
+        # Add completion separator with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.add_log_message("-" * 60)
+        self.add_log_message(f"EXPERIMENT COMPLETED - {timestamp}")
+        self.add_log_message("-" * 60)
+        
         messagebox.showinfo(self.texts["success"], message)
     
     def experiment_error(self, error_msg):
@@ -1322,6 +1377,13 @@ class MLExperimentGUI:
         self.status_var.set(self.texts["error"])
         
         self.add_log_message(f"ERROR: {error_msg}")
+        
+        # Add error separator with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.add_log_message("-" * 60)
+        self.add_log_message(f"EXPERIMENT ERROR - {timestamp}")
+        self.add_log_message("-" * 60)
+        
         messagebox.showerror(self.texts["error"], error_msg)
     
     def stop_experiment(self):
@@ -1333,6 +1395,12 @@ class MLExperimentGUI:
                 self.add_log_message(result)
             except Exception as e:
                 self.add_log_message(f"Error stopping experiment: {str(e)}")
+            
+            # Add end separator with timestamp
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.add_log_message("-" * 60)
+            self.add_log_message(f"EXPERIMENT ENDED - {timestamp}")
+            self.add_log_message("-" * 60)
             
             self.is_running = False
             self.start_button.configure(state='normal', bg="#4CAF50")   # Green when enabled
