@@ -249,10 +249,12 @@ class MLExperimentGUI:
         
         # State variables
         self.is_running = False
+        self.current_progress_info = None
         
         # GUI variables
         self.level_var = tk.IntVar(value=1)
         self.status_var = tk.StringVar(value=self.texts["ready"])
+        self.progress_detail_var = tk.StringVar(value="")
         self.study_mode_var = tk.StringVar(value="full_study")
         self.data_source_var = tk.StringVar(value="synthetic")
         self.csv_path_var = tk.StringVar(value="")
@@ -543,8 +545,13 @@ class MLExperimentGUI:
         
         # For industry datasets: show only filename in dropdown, full path in display label
         if self.industry_csv_path and os.path.exists(self.industry_csv_path):
+            # Automatically switch to real data mode when industry dataset is selected
+            self.data_source_var.set("real")
+            self.toggle_csv_options()  # Update UI state
+            
             # Show just the filename in the log message  
             self.add_log_message(f"Selected industry test dataset: {selected_display_name} (for demo/testing only)")
+            self.add_log_message(f"Switched to real data mode for industry dataset")
             # Show full path in the display label below dropdown
             self.csv_full_path_display_var.set(self.industry_csv_path)
         else:
@@ -789,14 +796,150 @@ class MLExperimentGUI:
                                          cursor="hand2")
         self.view_logs_button.pack(side="left", padx=(0, 10))
         
-        # Status
-        status_frame = ttk.Frame(control_frame)
-        status_frame.grid(row=0, column=1, sticky=tk.E)
+        # Status and Progress Frame
+        status_progress_frame = ttk.Frame(control_frame)
+        status_progress_frame.grid(row=0, column=1, sticky=(tk.W, tk.E))
+        status_progress_frame.columnconfigure(0, weight=1)
         
-        ttk.Label(status_frame, text=self.texts["status"]).pack(side='left', padx=(0, 5))
-        status_label = ttk.Label(status_frame, textvariable=self.status_var, 
+        # Main status line
+        status_line_frame = ttk.Frame(status_progress_frame)
+        status_line_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+        status_line_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(status_line_frame, text=self.texts["status"]).pack(side='left', padx=(0, 5))
+        status_label = ttk.Label(status_line_frame, textvariable=self.status_var, 
                                 font=('Arial', 10, 'bold'))
         status_label.pack(side='left')
+        
+        # Progress detail line (ETA, runs, etc.)
+        progress_detail_label = ttk.Label(status_progress_frame, textvariable=self.progress_detail_var,
+                                         font=('Arial', 9), foreground='gray')
+        progress_detail_label.grid(row=1, column=0, sticky=tk.W)
+        
+        # Custom progress bar
+        self.create_custom_progress_bar(status_progress_frame)
+
+    def create_custom_progress_bar(self, parent):
+        """Create custom progress bar that shows both Stage 1 and Stage 2"""
+        # Canvas for custom progress bar
+        self.progress_canvas = tk.Canvas(parent, height=25, bg='white', 
+                                       relief='sunken', bd=1)
+        self.progress_canvas.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(2, 0))
+        
+        # Configure canvas to expand with window
+        parent.grid_columnconfigure(0, weight=1)
+        
+        # Initialize progress values
+        self.current_stage1_progress = "0/0"
+        self.current_stage2_progress = "0/0"
+        self.current_stage1_complete = False
+        self.current_experiment_complete = False
+        
+        # Draw initial empty progress bar
+        self.update_custom_progress_bar("0/0", "0/0", False, False)
+    
+    def update_custom_progress_bar(self, stage1_progress, stage2_progress, stage1_complete, experiment_complete=False):
+        """Update the custom progress bar with stage-specific progress"""
+        # Store current values
+        self.current_stage1_progress = stage1_progress
+        self.current_stage2_progress = stage2_progress
+        self.current_stage1_complete = stage1_complete
+        self.current_experiment_complete = experiment_complete
+        
+        # Clear canvas
+        self.progress_canvas.delete("all")
+        
+        # Get canvas dimensions
+        canvas_width = self.progress_canvas.winfo_width()
+        canvas_height = self.progress_canvas.winfo_height()
+        
+        # Use fallback dimensions if canvas not yet rendered
+        if canvas_width <= 1:
+            canvas_width = 300
+        if canvas_height <= 1:
+            canvas_height = 23
+        
+        # Parse progress values
+        try:
+            stage1_current, stage1_total = map(int, stage1_progress.split('/'))
+            stage2_current, stage2_total = map(int, stage2_progress.split('/'))
+        except (ValueError, AttributeError):
+            stage1_current = stage1_total = stage2_current = stage2_total = 0
+        
+        # Calculate total work and progress
+        total_work = stage1_total + stage2_total
+        total_completed = stage1_current + stage2_current
+        
+        if total_work == 0:
+            return  # Nothing to draw
+        
+        # Calculate stage boundaries
+        stage1_width_ratio = stage1_total / total_work if total_work > 0 else 0
+        stage1_boundary = canvas_width * stage1_width_ratio
+        
+        # Colors
+        stage1_color = "#4CAF50" if stage1_complete else "#2196F3"  # Green if complete, blue if active
+        stage1_outline = "#2E7D32" if stage1_complete else "#1976D2"  # Darker outline
+        
+        # Stage 2 colors: Green if experiment is completely finished, blue otherwise
+        stage2_color = "#4CAF50" if experiment_complete else "#2196F3"  
+        stage2_outline = "#2E7D32" if experiment_complete else "#1976D2"
+        
+        background_color = "#E0E0E0"  # Light gray background
+        
+        # Draw background
+        self.progress_canvas.create_rectangle(2, 2, canvas_width-2, canvas_height-2, 
+                                            fill=background_color, outline="#BDBDBD", width=1)
+        
+        # Draw Stage 1 progress
+        if stage1_total > 0:
+            stage1_progress_ratio = stage1_current / stage1_total
+            stage1_fill_width = stage1_boundary * stage1_progress_ratio
+            
+            if stage1_fill_width > 0:
+                self.progress_canvas.create_rectangle(2, 2, stage1_fill_width, canvas_height-2,
+                                                    fill=stage1_color, outline=stage1_outline, width=2)
+                
+                # Add "Stage 1" text only if there's at least 25% progress
+                if stage1_progress_ratio >= 0.25:
+                    text_x = min(stage1_fill_width / 2, stage1_boundary / 2)
+                    self.progress_canvas.create_text(text_x, canvas_height/2, 
+                                                   text="Stage 1", fill="white", 
+                                                   font=("Arial", 9, "bold"))
+        
+        # Draw Stage 2 progress (only if Stage 1 is complete and Stage 2 has started)
+        if stage1_complete and stage2_total > 0 and stage2_current > 0:
+            stage2_progress_ratio = stage2_current / stage2_total
+            stage2_start_x = stage1_boundary
+            stage2_available_width = canvas_width - stage1_boundary - 2
+            stage2_fill_width = stage2_available_width * stage2_progress_ratio
+            
+            if stage2_fill_width > 0:
+                self.progress_canvas.create_rectangle(stage2_start_x, 2, 
+                                                    stage2_start_x + stage2_fill_width, canvas_height-2,
+                                                    fill=stage2_color, outline=stage2_outline, width=2)
+                
+                # Add "Stage 2" text only if there's at least 25% progress
+                if stage2_progress_ratio >= 0.25:
+                    text_x = stage2_start_x + (stage2_fill_width / 2)
+                    self.progress_canvas.create_text(text_x, canvas_height/2,
+                                                   text="Stage 2", fill="white", 
+                                                   font=("Arial", 9, "bold"))
+        
+        # Draw stage boundary line (subtle divider)
+        if stage1_total > 0 and stage2_total > 0:
+            self.progress_canvas.create_line(stage1_boundary, 2, stage1_boundary, canvas_height-2,
+                                           fill="#757575", width=1)
+        
+        # Bind resize event to redraw progress bar
+        self.progress_canvas.bind('<Configure>', self._on_canvas_resize)
+    
+    def _on_canvas_resize(self, event):
+        """Handle canvas resize by redrawing the progress bar"""
+        self.update_custom_progress_bar(self.current_stage1_progress, 
+                                      self.current_stage2_progress, 
+                                      self.current_stage1_complete,
+                                      self.current_experiment_complete)
 
     def create_log_display(self, parent):
         """Create log display area"""
@@ -903,6 +1046,10 @@ class MLExperimentGUI:
         self.start_button.configure(state='disabled', bg="#cccccc")  # Gray when disabled
         self.stop_button.configure(state='normal', bg="#f44336")     # Red when enabled
         self.status_var.set(self.texts["running"])
+        
+        # Initialize progress display
+        self.update_custom_progress_bar("0/0", "0/0", False, False)
+        self.progress_detail_var.set("Starting experiment...")
         
         # Add separator with timestamp instead of clearing log to stack experiments
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1044,7 +1191,7 @@ class MLExperimentGUI:
             
             # Show deletion confirmation and execute if confirmed
             data_source = self.data_source_var.get()
-            csv_path = self.csv_path_var.get() if data_source == "real" else None
+            csv_path = self.get_current_csv_path() if data_source == "real" else None
             
             self.delete_dataset_progress(data_source, csv_path, dataset_status)
             
@@ -1239,7 +1386,7 @@ class MLExperimentGUI:
             
             # Show deletion confirmation and execute if confirmed
             data_source = self.data_source_var.get()
-            csv_path = self.csv_path_var.get() if data_source == "real" else None
+            csv_path = self.get_current_csv_path() if data_source == "real" else None
             
             self.delete_dataset_progress(data_source, csv_path, dataset_status)
             
@@ -1340,6 +1487,9 @@ class MLExperimentGUI:
         if not self.is_running:
             return
 
+        # Get current progress information
+        self.update_progress_display()
+
         process = self.experiment_runner.experiment_process
         if process and process.is_alive():
             # Process is still running, check again later
@@ -1352,12 +1502,128 @@ class MLExperimentGUI:
                 self.experiment_error(self.texts["experiment_terminated"].format(process.exitcode))
             # If process is None (was stopped), do nothing as UI is already updated.
 
+    def update_progress_display(self):
+        """Update the progress bar and detail information"""
+        try:
+            # Get current dataset status with timing information
+            data_source = self.data_source_var.get()
+            csv_path = self.get_current_csv_path()
+            current_level = self.level_var.get()
+            
+            progress_info = self.experiment_runner.get_dataset_status(data_source, csv_path, current_level)
+            
+            if progress_info and progress_info.get("status") == "existing":
+                self.current_progress_info = progress_info
+                self.update_progress_widgets(progress_info)
+            else:
+                # If no existing progress, create a basic progress display
+                if self.is_running:
+                    self.progress_detail_var.set("Experiment running...")
+            
+        except Exception as e:
+            # If progress update fails, show basic running info
+            if self.is_running:
+                self.progress_detail_var.set("Experiment running...")
+    
+    def get_current_csv_path(self):
+        """Get the current CSV path based on user selection"""
+        if self.data_source_var.get() == "real":
+            if hasattr(self, 'user_csv_path') and self.user_csv_path:
+                return self.user_csv_path
+            elif hasattr(self, 'industry_csv_path') and self.industry_csv_path:
+                return self.industry_csv_path
+        return None
+    
+    def update_progress_widgets(self, progress_info):
+        """Update progress bar and detail text based on progress information"""
+        try:
+            # Determine current stage and progress
+            stage1_complete = progress_info.get("stage1_completed", False)
+            current_stage = progress_info.get("current_stage", 1)
+            
+            # Get progress numbers for both stages
+            stage1_progress = progress_info.get("stage1_progress", "0/0")
+            stage2_progress = progress_info.get("stage2_progress", "0/0")
+            
+            # Determine which stage is currently active for progress bar
+            if stage1_complete and current_stage == 2:
+                # Stage 2 is active
+                if "/" in stage2_progress:
+                    current, total = map(int, stage2_progress.split("/"))
+                else:
+                    current, total = 0, 0
+                stage_name = "Stage 2"
+            else:
+                # Stage 1 is active
+                if "/" in stage1_progress:
+                    current, total = map(int, stage1_progress.split("/"))
+                else:
+                    current, total = 0, 0
+                stage_name = "Stage 1"
+            
+            # Update custom progress bar with both stages
+            self.update_custom_progress_bar(stage1_progress, stage2_progress, stage1_complete, False)
+            
+            # Build detailed status text
+            detail_parts = []
+            
+            # Add stage-specific ETA timing information
+            eta_formatted = progress_info.get("eta_formatted")
+            if eta_formatted and eta_formatted != "Unknown":
+                using_estimate = progress_info.get("using_estimate", False)
+                if using_estimate:
+                    detail_parts.append(f"ETA for {stage_name}: ~{eta_formatted} (estimated)")
+                else:
+                    detail_parts.append(f"ETA for {stage_name}: {eta_formatted}")
+            
+            # Speed information removed as requested
+            
+            avg_time = progress_info.get("avg_time_per_run", 0)
+            if avg_time > 0:
+                using_estimate = progress_info.get("using_estimate", False)
+                if using_estimate:
+                    dataset_size = progress_info.get("dataset_size", 0)
+                    detail_parts.append(f"Est: {avg_time:.1f}s/run (dataset: {dataset_size} rows)")
+                else:
+                    detail_parts.append(f"Avg: {avg_time:.1f}s/run")
+            
+            # Add best metric if available
+            best_metric = progress_info.get("best_metric_so_far")
+            if best_metric and best_metric != "N/A":
+                detail_parts.append(f"Best: {best_metric:.3f}")
+            
+            # Update the detail text
+            detail_text = " • ".join(detail_parts) if detail_parts else "Experiment running..."
+            self.progress_detail_var.set(detail_text)
+            
+            # Update main status to show stage breakdown
+            if self.is_running:
+                # Build status text with stage breakdown
+                if stage1_complete:
+                    # Stage 1 is done, show both stages with emphasis on stage 2
+                    status_text = f"Running Stage 1({stage1_progress}) Stage 2({stage2_progress})"
+                else:
+                    # Stage 1 is still running
+                    status_text = f"Running Stage 1({stage1_progress}) Stage 2({stage2_progress})"
+                
+                self.status_var.set(status_text)
+        
+        except Exception as e:
+            # If widget update fails, show basic info
+            self.progress_detail_var.set("Experiment running...")
+            self.update_custom_progress_bar("0/0", "0/0", False, False)
+
     def experiment_completed(self, message):
         """Handle experiment completion"""
         self.is_running = False
         self.start_button.configure(state='normal', bg="#4CAF50")   # Green when enabled
         self.stop_button.configure(state='disabled', bg="#cccccc") # Gray when disabled
         self.status_var.set(self.texts["completed"])
+        
+        # Reset progress display - show completed state
+        # For completed experiments, we'll show both stages as complete
+        self.update_custom_progress_bar("100/100", "100/100", True, True)  # Visual completion with green Stage 2
+        self.progress_detail_var.set("Experiment completed successfully")
         
         self.add_log_message(message)
         
@@ -1375,6 +1641,10 @@ class MLExperimentGUI:
         self.start_button.configure(state='normal', bg="#4CAF50")   # Green when enabled
         self.stop_button.configure(state='disabled', bg="#cccccc") # Gray when disabled
         self.status_var.set(self.texts["error"])
+        
+        # Reset progress display
+        self.update_custom_progress_bar("0/0", "0/0", False, False)
+        self.progress_detail_var.set("Experiment terminated with error")
         
         self.add_log_message(f"ERROR: {error_msg}")
         
@@ -1406,6 +1676,10 @@ class MLExperimentGUI:
             self.start_button.configure(state='normal', bg="#4CAF50")   # Green when enabled
             self.stop_button.configure(state='disabled', bg="#cccccc") # Gray when disabled
             self.status_var.set(self.texts["stopped"])
+            
+            # Reset progress display
+            self.update_custom_progress_bar("0/0", "0/0", False, False)
+            self.progress_detail_var.set("Experiment stopped by user")
         else:
             messagebox.showinfo(self.texts["info"], self.texts["no_experiment"])
     

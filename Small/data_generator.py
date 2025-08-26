@@ -99,7 +99,7 @@ def get_run_directory_structure(dataset_id, timestamp=None, base_datasets_dir=No
         "timestamp": timestamp,
         "run_dir": run_dir,
         "terminal_output": os.path.join(run_dir, "terminal_output.txt"),
-        "results_csv": os.path.join(run_dir, "test_results.csv"),
+        "results_csv": os.path.join(dataset_paths["dataset_dir"], "test_results.csv"),  # Dataset level, not run level
         "dataset_paths": dataset_paths
     }
 

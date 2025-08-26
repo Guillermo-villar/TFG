@@ -221,7 +221,7 @@ class ExperimentRunner:
     def get_dataset_status(self, data_source="synthetic", csv_path=None, current_level=1):
         """
         Get the status of a dataset (new, in progress, or completed)
-        Returns a dictionary with detailed status information
+        Returns a dictionary with detailed status information including ETA
         """
         try:
             # Import required modules
@@ -291,6 +291,10 @@ class ExperimentRunner:
             previous_capilaridad_config = capilaridad_config
             previous_level = previous_capilaridad_config.get("level", "unknown")
             
+            # Get timing and ETA information
+            timing_info = self.get_timing_and_eta(dataset_paths, stage1_done, stage1_total, 
+                                                 stage2_done, stage2_total, stage1_complete)
+            
             status_info = {
                 "status": "existing",
                 "dataset_id": dataset_id,
@@ -306,7 +310,8 @@ class ExperimentRunner:
                 "current_capilaridad_config": current_capilaridad_config,
                 "previous_level": previous_level,
                 "current_level": current_level,
-                "best_metric_so_far": exec_state.get("best_metric_so_far")
+                "best_metric_so_far": exec_state.get("best_metric_so_far"),
+                **timing_info  # Add timing information
             }
             
             # Determine overall status
@@ -332,6 +337,162 @@ class ExperimentRunner:
                 "current_capilaridad_config": current_capilaridad_config if 'current_capilaridad_config' in locals() else {},
                 "current_level": current_level
             }
+
+    def get_timing_and_eta(self, dataset_paths, stage1_done, stage1_total, stage2_done, stage2_total, stage1_complete):
+        """
+        Calculate timing statistics and ETA based on dataset size and actual run times
+        """
+        import pandas as pd
+        import numpy as np
+        from datetime import datetime, timedelta
+        
+        timing_info = {
+            "avg_time_per_run": 0,
+            "total_time_elapsed": 0,
+            "eta_seconds": None,
+            "eta_formatted": "Unknown",
+            "total_runs_completed": 0,
+            "runs_per_hour": 0
+        }
+        
+        try:
+            # Get the main CSV file for this dataset
+            dataset_csv = dataset_paths["dataset_csv"]
+            
+            # Get dataset size for initial time estimates
+            dataset_size = 0
+            if os.path.exists(dataset_csv):
+                try:
+                    df_dataset = pd.read_csv(dataset_csv)
+                    dataset_size = len(df_dataset)
+                except Exception:
+                    dataset_size = 0
+            
+            # Calculate initial time estimate based on dataset size
+            if dataset_size > 1000:
+                estimated_time_per_run = 30.0  # 30 seconds
+            elif dataset_size > 500:
+                estimated_time_per_run = 15.0  # 15 seconds
+            else:
+                estimated_time_per_run = 10.0  # 10 seconds
+            
+            # Look for the main test_results.csv file in the dataset directory
+            main_results_csv = os.path.join(dataset_paths["dataset_dir"], "test_results.csv")
+            
+            # Try to get actual timing data from completed runs
+            actual_times = []
+            total_runs = 0
+            
+            if os.path.exists(main_results_csv):
+                try:
+                    df = pd.read_csv(main_results_csv)
+                    if 'time_taken' in df.columns:
+                        all_times = df['time_taken'].dropna().tolist()
+                        total_runs = len(all_times)
+                        
+                        # Stage-specific timing logic
+                        if stage1_complete and stage2_done > 0:
+                            # Stage 2: Only use recent timing data (Stage 2 runs)
+                            # Since we can't distinguish stages in CSV, use only recent runs
+                            # Estimate: Stage 1 had stage1_total runs, so Stage 2 starts after that
+                            stage2_start_index = stage1_total
+                            if total_runs > stage2_start_index:
+                                # Use only Stage 2 timing data
+                                actual_times = all_times[stage2_start_index:]
+                            else:
+                                # Not enough data yet, use estimate
+                                actual_times = []
+                        else:
+                            # Stage 1: Use all available timing data
+                            actual_times = all_times
+                            
+                except Exception:
+                    pass
+            
+            # Calculate timing statistics
+            if actual_times:
+                # Use actual timing data if available
+                avg_time = np.mean(actual_times)
+                total_elapsed = sum(actual_times)
+                
+                # Weight the estimate: use more actual data as we get more runs
+                # For Stage 2, be more aggressive in using actual data since runs may be different
+                if stage1_complete:
+                    # Stage 2: Use actual data more quickly since characteristics may be different
+                    weight_actual = min(len(actual_times) / 3.0, 1.0)  # Full weight after 3 runs
+                else:
+                    # Stage 1: More conservative weighting
+                    weight_actual = min(len(actual_times) / 10.0, 1.0)  # Full weight after 10 runs
+                    
+                weighted_avg_time = (1 - weight_actual) * estimated_time_per_run + weight_actual * avg_time
+            else:
+                # Use estimated time if no actual data yet
+                weighted_avg_time = estimated_time_per_run
+                avg_time = estimated_time_per_run
+                total_elapsed = 0
+            
+            # Calculate remaining work
+            if stage1_complete:
+                # Currently in stage 2
+                remaining_runs = stage2_total - stage2_done
+                current_progress = stage2_done
+                total_stage_runs = stage2_total
+                stage_name = "Stage 2"
+            else:
+                # Currently in stage 1
+                remaining_runs = stage1_total - stage1_done
+                current_progress = stage1_done
+                total_stage_runs = stage1_total
+                stage_name = "Stage 1"
+            
+            # Calculate ETA
+            eta_seconds = None
+            eta_formatted = "Unknown"
+            
+            if remaining_runs > 0 and weighted_avg_time > 0:
+                eta_seconds = remaining_runs * weighted_avg_time
+                
+                # Format ETA nicely
+                if eta_seconds < 60:
+                    eta_formatted = f"{int(eta_seconds)}s"
+                elif eta_seconds < 3600:
+                    minutes = int(eta_seconds / 60)
+                    seconds = int(eta_seconds % 60)
+                    eta_formatted = f"{minutes}m {seconds}s"
+                else:
+                    hours = int(eta_seconds / 3600)
+                    minutes = int((eta_seconds % 3600) / 60)
+                    eta_formatted = f"{hours}h {minutes}m"
+            
+            # Calculate runs per hour
+            runs_per_hour = 3600 / weighted_avg_time if weighted_avg_time > 0 else 0
+            
+            timing_info.update({
+                "avg_time_per_run": round(weighted_avg_time, 2),
+                "actual_avg_time": round(avg_time, 2) if actual_times else 0,
+                "estimated_time": round(estimated_time_per_run, 2),
+                "total_time_elapsed": round(total_elapsed, 2),
+                "eta_seconds": eta_seconds,
+                "eta_formatted": eta_formatted,
+                "total_runs_completed": len(actual_times),  # Use actual stage-specific count
+                "runs_per_hour": round(runs_per_hour, 1),
+                "remaining_runs": remaining_runs,
+                "current_progress": current_progress,
+                "total_stage_runs": total_stage_runs,
+                "stage_name": stage_name,
+                "dataset_size": dataset_size,
+                "using_estimate": len(actual_times) < (3 if stage1_complete else 10)  # Different thresholds per stage
+            })
+            
+        except Exception as e:
+            # If anything fails, return basic timing info with estimates
+            timing_info.update({
+                "avg_time_per_run": 15.0,  # Default estimate
+                "eta_formatted": "Calculating...",
+                "using_estimate": True
+            })
+        
+        return timing_info
 
 
 def main():

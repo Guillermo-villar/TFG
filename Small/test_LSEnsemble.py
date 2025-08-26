@@ -170,6 +170,10 @@ def run_test_from_csv(
     setup_logging(output_config.get("log_level", "INFO"))
     csv_file = output_config.get("csv_file", "test_results.csv")
     os.makedirs(os.path.dirname(csv_file) if os.path.dirname(csv_file) else '.', exist_ok=True)
+    
+    # Check if we're resuming from previous progress
+    study_data = load_study_progress(best_runner_file) if use_previous_best_runner else None
+    
     csv_columns = [
         'data_params', 'model_name', 'params', 'metric', 'confusion_matrix', 'accuracy', 'time_taken',
         'label_switching_used', 'num_labels_switched_pos_to_neg', 'total_pos_labels', 'pct_pos_switched',
@@ -178,9 +182,28 @@ def run_test_from_csv(
     ]
 
     # Open with immediate flush mode
-    with open(csv_file, 'w', newline='', buffering=1) as csvfile:
+    # Determine if we're resuming (append mode) or starting fresh (write mode)
+    file_exists = os.path.exists(csv_file)
+    is_resuming = study_data is not None and file_exists
+    
+    if is_resuming:
+        # Append mode - don't write header again
+        file_mode = 'a'
+        write_header = False
+        logger.info(f"Resuming: appending results to existing CSV file: {csv_file}")
+    else:
+        # Write mode - create new file with header
+        file_mode = 'w'
+        write_header = True
+        if file_exists:
+            logger.info(f"Starting fresh: overwriting existing CSV file: {csv_file}")
+        else:
+            logger.info(f"Creating new CSV file: {csv_file}")
+    
+    with open(csv_file, file_mode, newline='', buffering=1) as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
-        writer.writeheader()
+        if write_header:
+            writer.writeheader()
         csvfile.flush()
         os.fsync(csvfile.fileno())  # Force writing to disk
 
@@ -192,21 +215,20 @@ def run_test_from_csv(
                 df = pd.read_csv(dataset_path)
                 # ... Optionally filter/modify df based on data_params if needed ...
                 _run_single_experiment(df, test_size, model_config, output_config, data_stats_extra=data_params, writer=writer, csvfile=csvfile,
-                                       use_previous_best_runner=use_previous_best_runner, best_runner_file=best_runner_file, study_mode=study_mode)
+                                       use_previous_best_runner=use_previous_best_runner, best_runner_file=best_runner_file, study_mode=study_mode, study_data=study_data)
         else:
             logger.info(f"Loading dataset from {dataset_path}")
             df = pd.read_csv(dataset_path)
             _run_single_experiment(df, test_size, model_config, output_config, data_stats_extra=dataset_params, writer=writer, csvfile=csvfile,
-                                   use_previous_best_runner=use_previous_best_runner, best_runner_file=best_runner_file, study_mode=study_mode)
+                                   use_previous_best_runner=use_previous_best_runner, best_runner_file=best_runner_file, study_mode=study_mode, study_data=study_data)
 
 def _run_single_experiment(df, test_size, model_config, output_config, data_stats_extra=None, writer=None, csvfile=None,
-                           use_previous_best_runner=False, best_runner_file=None, study_mode="full_study"):
+                           use_previous_best_runner=False, best_runner_file=None, study_mode="full_study", study_data=None):
     """
     Run a single experiment with enhanced progress tracking and resume capability.
     """
     
-    # Load previous study progress if available
-    study_data = load_study_progress(best_runner_file) if use_previous_best_runner else None
+    # Use study_data passed as parameter (already loaded in parent function)
     
     if study_data:
         logger.info("Loaded previous study progress:")
@@ -288,11 +310,16 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
     loss_fn = stage1.get("loss_fn", "F1")
     rb_each_expert = stage1.get("rb_each_expert", True)  # This is read from config
 
-        # Stage 2 params - ALWAYS load these from the config file
+    # Stage 2 params - ALWAYS load these from the config file
     LS_alpha = stage2.get("alpha", [])
     LS_beta = stage2.get("beta", [])
     LS_Q_RB_C = stage2.get("Q_RB_C", [])
     LS_Q_RB_S = stage2.get("Q_RB_S", [])
+    
+    # Calculate total Stage 2 configurations early so GUI can display correct totals
+    from itertools import product
+    stage2_param_grid = list(product(LS_alpha, LS_beta, LS_Q_RB_C, LS_Q_RB_S))
+    total_stage2_configs = len(stage2_param_grid)
 
     # Choose metric function
     if loss_fn.lower() == "custom":
@@ -314,12 +341,8 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
     # Before the model grid search loops:
     signal.signal(signal.SIGALRM, timeout_handler)
 
-    # Stage 1: Find best runner (best config) for LSEnsemble, ignoring alpha/beta/qrbc/qrbs
-    best_runner = None
-    best_metric = -np.inf
-    best_runner_config = None
-
-    # Initialize study progress with minimal tracking information
+    # Initialize study progress with minimal tracking information FIRST
+    # (before any logic that might reference it)
     study_progress = {
         "capilaridad_config": {
             "level": model_config.get("capilaridad_level", "unknown"),
@@ -330,11 +353,16 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
         "stage1_completed": False,
         "total_stage1_configs": 0,
         "completed_stage1_configs": 0,
-        "total_stage2_configs": 0,
+        "total_stage2_configs": total_stage2_configs,  # Now calculated early
         "completed_stage2_configs": 0,
         "study_mode": study_mode,
         "best_metric_so_far": None
     }
+
+    # Stage 1: Find best runner (best config) for LSEnsemble, ignoring alpha/beta/qrbc/qrbs
+    best_runner = None
+    best_metric = -np.inf
+    best_runner_config = None
 
     run_stage1 = True
     if study_mode == "stage2_only":
@@ -498,9 +526,9 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
             study_progress["completed_stage1_configs"] = idx + 1
             study_progress["best_stage1_metric"] = best_metric
             
-            # Save progress periodically (every 5 configs or on the last one)
+            # Save progress after every run for real-time tracking
+            save_study_progress(best_runner_file, best_runner or base_config, study_progress)
             if (idx + 1) % 5 == 0 or (idx + 1) == total_runner:
-                save_study_progress(best_runner_file, best_runner or base_config, study_progress)
                 logger.info(f"Stage 1 progress saved: {idx + 1}/{total_runner} configurations completed")
 
         # Mark Stage 1 as completed
@@ -530,10 +558,9 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
     # Stage 2: For the best runner, try all combinations of alpha, beta, Q_RB_C, Q_RB_S
     results = []
     
-    # Build all Stage 2 parameter combinations
-    stage2_param_grid = list(product(LS_alpha, LS_beta, LS_Q_RB_C, LS_Q_RB_S))
-    total_lse = len(stage2_param_grid)
-    study_progress["total_stage2_configs"] = total_lse
+    # Use the Stage 2 parameter combinations calculated earlier  
+    # (stage2_param_grid and total_stage2_configs are already available)
+    total_lse = total_stage2_configs
     
     # Check if we're resuming Stage 2
     start_lse_idx = 0
@@ -647,9 +674,9 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
                 best_metric = avg_metric
                 best_runner = config.copy()
         
-        # Save progress periodically (every 5 configs or on the last one)
+        # Save progress after every run for real-time tracking
+        save_study_progress(best_runner_file, best_runner, study_progress)
         if (lse_idx + 1) % 5 == 0 or (lse_idx + 1) == total_lse:
-            save_study_progress(best_runner_file, best_runner, study_progress)
             logger.info(f"Stage 2 progress saved: {lse_idx + 1}/{total_lse} configurations completed")
 
     # Mark Stage 2 as completed
