@@ -266,6 +266,13 @@ class MLExperimentGUI:
         self.user_csv_path = ""      # Only for user-selected files
         self.csv_file_map = {}
         
+        # Multiclass detection state
+        self.multiclass_strategy = None  # Will store 'ova', 'ovo', or None
+        self.multiclass_detected = False
+        self.multiclass_target_column = None
+        self.multiclass_indicator_var = None  # Will be initialized when GUI is created
+        self.multiclass_dichotomies = None  # Will store dichotomy information
+        
         # Store references to widgets that need translation updates
         self.title_label = None
         
@@ -653,55 +660,231 @@ class MLExperimentGUI:
                 # Check if preprocessing is needed
                 analysis = preprocessor.analyze_csv(filepath)
                 
-                # Create processed filename
-                base_name = os.path.splitext(os.path.basename(filepath))[0]
-                processed_path = os.path.join(os.path.dirname(filepath), f"{base_name}_processed.csv")
+                # NEW: Check for multiclass candidates after analysis
+                multiclass_candidates = preprocessor.detect_multiclass(filepath)
                 
-                # Show preprocessing dialog to user
-                proceed = messagebox.askyesno(
-                    "CSV Preprocessing", 
-                    f"The selected CSV file will be analyzed and preprocessed if needed.\n\n"
-                    f"Original file: {os.path.basename(filepath)}\n"
-                    f"Processed file: {os.path.basename(processed_path)}\n\n"
-                    f"Detected columns: {len(analysis['columns'])}\n"
-                    f"Binary columns found: {len(analysis['binary_columns'])}\n"
-                    f"Text columns found: {len(analysis.get('text_columns', []))}\n"
-                    f"Categorical columns found: {len(analysis.get('categorical_columns', []))}\n\n"
-                    f"Do you want to proceed with preprocessing?"
-                )
-                
-                if proceed:
-                    # Process the CSV file with GUI interaction
-                    result = preprocessor.process_csv_file(filepath, processed_path)
+                if multiclass_candidates:
+                    # Show multiclass detection and strategy selection
+                    self.add_log_message(f"Multiclass dataset detected with {len(multiclass_candidates)} potential target column(s)")
                     
-                    if result['success']:
-                        final_path = result['output_path']
-                        self.add_log_message(f"CSV preprocessing completed: {os.path.basename(final_path)}")
+                    # For now, use the first candidate (you could enhance this to let user choose)
+                    main_candidate = multiclass_candidates[0]
+                    
+                    # Show confirmation and strategy selection popup
+                    selected_strategy = self.show_multiclass_confirmation_popup(main_candidate)
+                    
+                    if selected_strategy:
+                        # User confirmed multiclass mode and selected a strategy
+                        self.multiclass_strategy = selected_strategy
+                        self.multiclass_detected = True
+                        self.multiclass_target_column = main_candidate['column']
                         
-                        # Set the processed file as the user's selected file
-                        self.user_csv_path = final_path
-                        self.csv_path_var.set(final_path)  # Show full path for manual files
-                        self.csv_full_path_display_var.set(final_path)  # Show full path in display label
+                        self.add_log_message(f"Multiclass mode enabled with {selected_strategy.upper()} strategy")
+                        self.add_log_message(f"Target column: '{main_candidate['column']}' with {main_candidate['n_classes']} classes")
                         
-                        # Show preprocessing summary
-                        log_summary = "\n".join(result['processing_log'])
-                        if log_summary:
-                            messagebox.showinfo("Preprocessing Complete", 
-                                              f"Preprocessing completed successfully!\n\nSummary:\n{log_summary}")
+                        # Update the visual indicator
+                        self.update_multiclass_indicator()
                     else:
-                        # Preprocessing failed
-                        error_msg = result.get('error', 'Unknown preprocessing error')
-                        messagebox.showerror("Preprocessing Failed", 
-                                           f"Preprocessing failed: {error_msg}\n\nUsing original file.")
-                        # Set original file as the user's selected file
+                        # User declined multiclass mode - treat as regular preprocessing
+                        self.multiclass_strategy = None
+                        self.multiclass_detected = False
+                        self.multiclass_target_column = None
+                        self.add_log_message("Multiclass mode declined - proceeding with standard binary classification")
+                        
+                        # Update the visual indicator
+                        self.update_multiclass_indicator()
+                else:
+                    # No multiclass candidates found - standard binary processing
+                    self.multiclass_strategy = None
+                    self.multiclass_detected = False
+                    self.multiclass_target_column = None
+                    
+                    # Update the visual indicator
+                    self.update_multiclass_indicator()
+                
+                # Handle processing based on multiclass detection
+                if multiclass_candidates:
+                    # MULTICLASS FLOW: Show multiclass-specific dialog
+                    main_candidate = multiclass_candidates[0]
+                    
+                    # Show multiclass preprocessing dialog
+                    proceed = messagebox.askyesno(
+                        "Multiclass Dataset Detected", 
+                        f"Multiclass dataset detected!\n\n"
+                        f"Original file: {os.path.basename(filepath)}\n"
+                        f"Classes detected: {main_candidate['n_classes']} ({', '.join(map(str, main_candidate.get('class_names', [])))})\n"
+                        f"Target column: {main_candidate['column']}\n\n"
+                        f"Strategy: {self.multiclass_strategy.upper() if self.multiclass_strategy else 'Not selected'}\n\n"
+                        f"This will create {main_candidate['n_classes']} dichotomies using {self.multiclass_strategy.upper() if self.multiclass_strategy else 'selected'} decomposition,\n"
+                        f"then process each dichotomy for binary classification.\n\n"
+                        f"Do you want to proceed with multiclass processing?"
+                    )
+                    
+                    if proceed:
+                        # MULTICLASS PROCESSING: Create dichotomies
+                        self.add_log_message(f"Creating multiclass dichotomies using {self.multiclass_strategy.upper()} strategy...")
+                        
+                        # Import and use multiclass decomposition
+                        from csv_preloading import create_multiclass_dichotomies
+                        
+                        dichotomy_result = create_multiclass_dichotomies(
+                            filepath, 
+                            main_candidate, 
+                            strategy=self.multiclass_strategy
+                        )
+                        
+                        if dichotomy_result['success']:
+                            n_dichotomies = dichotomy_result['n_dichotomies']
+                            self.add_log_message(f"Successfully created {n_dichotomies} dichotomies")
+                            
+                            # Show summary of dichotomies
+                            summary_text = f"Multiclass decomposition completed!\n\n"
+                            summary_text += f"Strategy: {dichotomy_result['strategy']}\n"
+                            summary_text += f"Classes: {dichotomy_result['n_classes']} ({', '.join(map(str, dichotomy_result['class_names']))})\n"
+                            summary_text += f"Dichotomies created: {n_dichotomies}\n\n"
+                            
+                            for i, dich in enumerate(dichotomy_result['dichotomies'][:3]):  # Show first 3
+                                summary_text += f"Dichotomy {dich['index']}: {dich['n_instances']} instances\n"
+                                summary_text += f"  Positive: {', '.join(dich['positive_classes'])}\n"
+                                summary_text += f"  Negative: {', '.join(dich['negative_classes'])}\n"
+                            
+                            if n_dichotomies > 3:
+                                summary_text += f"... and {n_dichotomies - 3} more dichotomies"
+                            
+                            messagebox.showinfo("Multiclass Decomposition Complete", summary_text)
+                            
+                            # Store dichotomy information for later use
+                            self.multiclass_dichotomies = dichotomy_result
+                            
+                            # NUEVO: Procesar cada dicotomía individualmente
+                            self.add_log_message(f"Processing {n_dichotomies} dichotomies...")
+                            processed_dichotomies = []
+                            
+                            for i, dichotomy_file in enumerate(dichotomy_result['dichotomy_files']):
+                                dichotomy_name = os.path.basename(dichotomy_file)
+                                self.add_log_message(f"Processing dichotomy {i+1}/{n_dichotomies}: {dichotomy_name}")
+                                
+                                # Create processed filename for this dichotomy
+                                base_name = os.path.splitext(dichotomy_file)[0]
+                                processed_dichotomy_path = f"{base_name}_processed.csv"
+                                
+                                try:
+                                    # Process this individual dichotomy
+                                    dichotomy_result_proc = preprocessor.process_csv_file(dichotomy_file, processed_dichotomy_path)
+                                    
+                                    if dichotomy_result_proc['success']:
+                                        processed_dichotomies.append({
+                                            'original': dichotomy_file,
+                                            'processed': dichotomy_result_proc['output_path'],
+                                            'index': i + 1,
+                                            'success': True
+                                        })
+                                        self.add_log_message(f"  ✓ Dichotomy {i+1} processed successfully")
+                                    else:
+                                        error_msg = dichotomy_result_proc.get('error', 'Unknown error')
+                                        processed_dichotomies.append({
+                                            'original': dichotomy_file,
+                                            'processed': dichotomy_file,  # Use original if processing failed
+                                            'index': i + 1,
+                                            'success': False,
+                                            'error': error_msg
+                                        })
+                                        self.add_log_message(f"  ⚠ Dichotomy {i+1} processing failed: {error_msg}")
+                                        
+                                except Exception as e:
+                                    processed_dichotomies.append({
+                                        'original': dichotomy_file,
+                                        'processed': dichotomy_file,  # Use original if exception
+                                        'index': i + 1,
+                                        'success': False,
+                                        'error': str(e)
+                                    })
+                                    self.add_log_message(f"  ✗ Dichotomy {i+1} processing exception: {str(e)}")
+                            
+                            # Store processed dichotomies info
+                            self.multiclass_dichotomies['processed_dichotomies'] = processed_dichotomies
+                            
+                            # Set the first processed dichotomy as the primary file for display
+                            if processed_dichotomies:
+                                first_processed = processed_dichotomies[0]['processed']
+                                self.user_csv_path = first_processed
+                                self.csv_path_var.set(f"Multiclass ({n_dichotomies} dichotomies)")
+                                self.csv_full_path_display_var.set(first_processed)
+                                self.add_log_message(f"Ready to run experiments on {n_dichotomies} processed dichotomies")
+                                
+                                # Show processing summary
+                                successful_count = sum(1 for d in processed_dichotomies if d['success'])
+                                messagebox.showinfo("Dichotomy Processing Complete", 
+                                                  f"Processed {successful_count}/{n_dichotomies} dichotomies successfully.\n\n"
+                                                  f"Ready to run multiclass experiments!")
+                            else:
+                                self.add_log_message("No dichotomies could be processed")
+                                messagebox.showerror("Processing Failed", "No dichotomies could be processed successfully.")
+                        else:
+                            # Dichotomy creation failed
+                            error_msg = dichotomy_result.get('error', 'Unknown error in multiclass decomposition')
+                            self.add_log_message(f"Error creating dichotomies: {error_msg}")
+                            messagebox.showerror("Multiclass Decomposition Failed", 
+                                               f"Failed to create multiclass dichotomies:\n{error_msg}")
+                            return
+                    else:
+                        # User declined multiclass processing
+                        self.add_log_message("Multiclass processing declined - using original file")
+                        self.user_csv_path = filepath
+                        self.csv_path_var.set(filepath)
+                        self.csv_full_path_display_var.set(filepath)
+                
+                else:
+                    # NOT MULTICLASS: Standard binary processing flow
+                    # Create processed filename
+                    base_name = os.path.splitext(os.path.basename(filepath))[0]
+                    processed_path = os.path.join(os.path.dirname(filepath), f"{base_name}_processed.csv")
+                    
+                    # Show standard preprocessing dialog
+                    proceed = messagebox.askyesno(
+                        "CSV Preprocessing", 
+                        f"The selected CSV file will be analyzed and preprocessed if needed.\n\n"
+                        f"Original file: {os.path.basename(filepath)}\n"
+                        f"Processed file: {os.path.basename(processed_path)}\n\n"
+                        f"Detected columns: {len(analysis['columns'])}\n"
+                        f"Binary columns found: {len(analysis['binary_columns'])}\n"
+                        f"Text columns found: {len(analysis.get('text_columns', []))}\n"
+                        f"Categorical columns found: {len(analysis.get('categorical_columns', []))}\n\n"
+                        f"Do you want to proceed with preprocessing?"
+                    )
+                    
+                    if proceed:
+                        # STANDARD BINARY PROCESSING
+                        result = preprocessor.process_csv_file(filepath, processed_path)
+                        
+                        if result['success']:
+                            final_path = result['output_path']
+                            self.add_log_message(f"CSV preprocessing completed: {os.path.basename(final_path)}")
+                            
+                            # Set the processed file as the user's selected file
+                            self.user_csv_path = final_path
+                            self.csv_path_var.set(final_path)  # Show full path for manual files
+                            self.csv_full_path_display_var.set(final_path)  # Show full path in display label
+                            
+                            # Show preprocessing summary
+                            log_summary = "\n".join(result['processing_log'])
+                            if log_summary:
+                                messagebox.showinfo("Preprocessing Complete", 
+                                                  f"Preprocessing completed successfully!\n\nSummary:\n{log_summary}")
+                        else:
+                            # Preprocessing failed
+                            error_msg = result.get('error', 'Unknown preprocessing error')
+                            messagebox.showerror("Preprocessing Failed", 
+                                               f"Preprocessing failed: {error_msg}\n\nUsing original file.")
+                            # Set original file as the user's selected file
+                            self.user_csv_path = filepath
+                            self.csv_path_var.set(filepath)  # Show full path for manual files
+                            self.csv_full_path_display_var.set(filepath)  # Show full path in display label
+                    else:
+                        # User declined preprocessing, set original file as the user's selected file
                         self.user_csv_path = filepath
                         self.csv_path_var.set(filepath)  # Show full path for manual files
                         self.csv_full_path_display_var.set(filepath)  # Show full path in display label
-                else:
-                    # User declined preprocessing, set original file as the user's selected file
-                    self.user_csv_path = filepath
-                    self.csv_path_var.set(filepath)  # Show full path for manual files
-                    self.csv_full_path_display_var.set(filepath)  # Show full path in display label
                     
             except Exception as e:
                 # If preprocessing fails, fall back to original file
@@ -722,6 +905,166 @@ class MLExperimentGUI:
                 self.csv_path_var.set(filepath)  # Show full path for manual files
                 self.csv_full_path_display_var.set(filepath)  # Show full path in display label
     
+    def show_multiclass_confirmation_popup(self, candidate):
+        """
+        Show popup to confirm multiclass detection and ask user for strategy selection
+        
+        Parameters:
+        -----------
+        candidate : dict
+            Dictionary containing multiclass candidate information
+            
+        Returns:
+        --------
+        str or None : Selected strategy ('ova', 'ovo') or None if cancelled
+        """
+        # First, confirm with user that this is indeed a multiclass dataset
+        confirm_message = (
+            f"Multiclass Dataset Detected!\n\n"
+            f"Column '{candidate['column']}' appears to be a multiclass target with {candidate['n_classes']} classes:\n"
+            f"{', '.join(map(str, candidate['class_names'][:5]))}"
+            f"{'...' if len(candidate['class_names']) > 5 else ''}\n\n"
+            f"Would you like to enable multiclass classification mode?"
+        )
+        
+        confirmed = messagebox.askyesno("Multiclass Detection", confirm_message)
+        
+        if not confirmed:
+            return None
+            
+        # If confirmed, show strategy selection popup
+        return self.show_decomposition_strategy_popup()
+    
+    def show_decomposition_strategy_popup(self):
+        """
+        Show popup for decomposition strategy selection (OVA vs OVO)
+        
+        Returns:
+        --------
+        str or None : Selected strategy ('ova', 'ovo') or None if cancelled
+        """
+        # Create custom dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Decomposition Strategy")
+        dialog.geometry("500x450")
+        dialog.transient(self.root)
+        
+        # Try to set grab, but handle gracefully if it fails
+        try:
+            dialog.grab_set()
+        except tk.TclError:
+            # If grab fails, continue without it - the dialog will still work
+            pass
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        result = {'strategy': None}
+        
+        # Main title
+        title_label = tk.Label(dialog, 
+                              text="Choose Multiclass Decomposition Strategy",
+                              font=('Arial', 14, 'bold'))
+        title_label.pack(pady=20)
+        
+        # Strategy selection variable
+        strategy_var = tk.StringVar(value="ova")
+        
+        # Create frames for each strategy
+        ova_frame = ttk.LabelFrame(dialog, text="One-vs-All (OVA)", padding=10)
+        ova_frame.pack(fill='x', padx=20, pady=10)
+        
+        ova_radio = ttk.Radiobutton(ova_frame, text="Select OVA Strategy", 
+                                   variable=strategy_var, value="ova")
+        ova_radio.pack(anchor='w')
+        
+        ova_desc = tk.Label(ova_frame, 
+                           text="• Creates N binary classifiers (one per class)\n"
+                                "• Each classifier separates one class vs all others\n"
+                                "• Faster training, good for balanced datasets\n"
+                                "• Recommended for beginners",
+                           justify='left', font=('Arial', 9))
+        ova_desc.pack(anchor='w', pady=(5, 0))
+        
+        ovo_frame = ttk.LabelFrame(dialog, text="One-vs-One (OVO)", padding=10)
+        ovo_frame.pack(fill='x', padx=20, pady=10)
+        
+        ovo_radio = ttk.Radiobutton(ovo_frame, text="Select OVO Strategy", 
+                                   variable=strategy_var, value="ovo")
+        ovo_radio.pack(anchor='w')
+        
+        ovo_desc = tk.Label(ovo_frame, 
+                           text="• Creates N×(N-1)/2 binary classifiers (one per class pair)\n"
+                                "• Each classifier separates two specific classes\n"
+                                "• More training time, better for imbalanced datasets\n"
+                                "• More robust but computationally intensive",
+                           justify='left', font=('Arial', 9))
+        ovo_desc.pack(anchor='w', pady=(5, 0))
+        
+        # Buttons
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=20)
+        
+        def confirm():
+            result['strategy'] = strategy_var.get()
+            dialog.destroy()
+        
+        def cancel():
+            result['strategy'] = None
+            dialog.destroy()
+        
+        ttk.Button(button_frame, text="Confirm", command=confirm).pack(side='left', padx=10)
+        ttk.Button(button_frame, text="Cancel", command=cancel).pack(side='left', padx=10)
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        return result['strategy']
+
+    def update_multiclass_indicator(self):
+        """Update the multiclass mode indicator in the status bar"""
+        if self.multiclass_detected and self.multiclass_strategy:
+            indicator_text = f"[MULTICLASS: {self.multiclass_strategy.upper()}]"
+            self.multiclass_indicator_var.set(indicator_text)
+            # Show the multiclass strategy button when multiclass is detected
+            self.multiclass_button.pack(side='left', padx=(0, 10))
+        else:
+            self.multiclass_indicator_var.set("")
+            # Hide the multiclass strategy button when not in multiclass mode
+            self.multiclass_button.pack_forget()
+
+    def change_multiclass_strategy(self):
+        """Allow user to change the multiclass decomposition strategy"""
+        if not self.multiclass_detected:
+            messagebox.showwarning("No Multiclass Dataset", 
+                                 "Multiclass strategy can only be changed when a multiclass dataset is detected.")
+            return
+        
+        # Show the strategy selection popup
+        new_strategy = self.show_decomposition_strategy_popup()
+        
+        if new_strategy and new_strategy != self.multiclass_strategy:
+            # Update the strategy
+            old_strategy = self.multiclass_strategy
+            self.multiclass_strategy = new_strategy
+            
+            # Update the indicator
+            self.update_multiclass_indicator()
+            
+            # Log the change
+            self.add_log_message(f"Multiclass strategy changed from {old_strategy.upper()} to {new_strategy.upper()}")
+            
+            # Show confirmation
+            messagebox.showinfo("Strategy Changed", 
+                              f"Multiclass decomposition strategy changed to {new_strategy.upper()}")
+        elif new_strategy == self.multiclass_strategy:
+            # User selected the same strategy
+            self.add_log_message(f"Multiclass strategy remains {new_strategy.upper()}")
+        # If new_strategy is None, user cancelled - do nothing
+
     def create_advanced_options(self, parent):
         """Create advanced options section"""
         advanced_frame = ttk.LabelFrame(parent, text=self.texts["advanced_settings"], padding="10")
@@ -783,6 +1126,19 @@ class MLExperimentGUI:
                                       cursor="hand2")
         self.config_button.pack(side='left', padx=(0, 10))
         
+        # Multiclass Strategy button - Purple (initially hidden)
+        self.multiclass_button = tk.Button(button_frame, 
+                                          text="🎯 Multiclass Strategy", 
+                                          command=self.change_multiclass_strategy,
+                                          bg="#9C27B0",  # Purple
+                                          fg="white",
+                                          font=("Arial", 10),
+                                          relief="raised",
+                                          padx=10,
+                                          pady=8,
+                                          cursor="hand2")
+        # Initially hidden - will be shown when multiclass is detected
+        
         # Logs button - Orange with magnifying glass icon
         self.view_logs_button = tk.Button(button_frame, 
                                          text=f"🔍 {self.texts['view_logs']}", 
@@ -810,6 +1166,12 @@ class MLExperimentGUI:
         status_label = ttk.Label(status_line_frame, textvariable=self.status_var, 
                                 font=('Arial', 10, 'bold'))
         status_label.pack(side='left')
+        
+        # Multiclass mode indicator
+        self.multiclass_indicator_var = tk.StringVar(value="")
+        self.multiclass_indicator = ttk.Label(status_line_frame, textvariable=self.multiclass_indicator_var,
+                                             font=('Arial', 9, 'bold'), foreground='blue')
+        self.multiclass_indicator.pack(side='left', padx=(10, 0))
         
         # Progress detail line (ETA, runs, etc.)
         progress_detail_label = ttk.Label(status_progress_frame, textvariable=self.progress_detail_var,
@@ -1070,11 +1432,16 @@ class MLExperimentGUI:
             self.add_log_message(self.texts["using_synthetic_data"])
 
         try:
+            # Pass multiclass info if available
+            multiclass_dichotomies = self.multiclass_dichotomies if self.multiclass_detected else None
+            
             result = self.experiment_runner.run_experiment(
                 level=level, 
                 study_mode=study_mode,
                 data_source=data_source,
-                csv_path=csv_path
+                csv_path=csv_path,
+                multiclass_strategy=self.multiclass_strategy,
+                multiclass_dichotomies=multiclass_dichotomies
             )
             self.add_log_message(result)
             self.check_experiment_status() # Start polling
@@ -1123,7 +1490,13 @@ class MLExperimentGUI:
         dialog.geometry("500x400")
         dialog.resizable(False, False)
         dialog.transient(self.root)
-        dialog.grab_set()
+        
+        # Try to set grab, but handle gracefully if it fails
+        try:
+            dialog.grab_set()
+        except tk.TclError:
+            # If grab fails, continue without it - the dialog will still work
+            pass
         
         # Center the dialog
         dialog.update_idletasks()
@@ -1250,7 +1623,13 @@ class MLExperimentGUI:
         dialog.geometry("600x650")
         dialog.resizable(False, False)
         dialog.transient(self.root)
-        dialog.grab_set()
+        
+        # Try to set grab, but handle gracefully if it fails
+        try:
+            dialog.grab_set()
+        except tk.TclError:
+            # If grab fails, continue without it - the dialog will still work
+            pass
         
         # Center the dialog
         dialog.update_idletasks()

@@ -109,6 +109,260 @@ class CSVPreprocessor:
             self.preprocessing_log.append(error_msg)
             raise
     
+    def detect_multiclass(self, file_path):
+        """
+        Detects potential multiclass target columns in a CSV file.
+
+        This function analyzes all columns to identify candidates for multiclass
+        classification based on the number of unique values and additional heuristics.
+        Also detects one-hot encoded targets (multiple binary columns where only one is 1 per row).
+        
+        IMPORTANT: If a clear binary target column already exists (named 'target', 'label', etc.),
+        this function will return empty list to avoid false multiclass detection.
+
+        Parameters:
+        -----------
+        file_path : str
+            Path to the CSV file to analyze.
+
+        Returns:
+        --------
+        list : A list of dictionaries, where each dictionary represents a
+               potential multiclass column. Returns an empty list if no
+               candidates are found or if a clear binary target already exists.
+        """
+        multiclass_candidates = []
+        try:
+            # Reuse the robust reading logic from analyze_csv
+            df = None
+            for encoding in ['utf-8', 'latin-1', 'cp1252']:
+                try:
+                    df = pd.read_csv(file_path, encoding=encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if df is None:
+                raise ValueError("Could not read CSV with any common encoding")
+
+            # FIRST: Detect one-hot encoded targets at the end of the CSV
+            # Look for groups of binary columns (containing only 0s and 1s) where only one column is 1 per row
+            n_cols = len(df.columns)
+            one_hot_detected = False
+            
+            # Look for one-hot patterns in the last 2-20 columns
+            for start_idx in range(max(0, n_cols - 20), n_cols - 1):
+                for end_idx in range(start_idx + 2, n_cols + 1):
+                    potential_columns = df.columns[start_idx:end_idx]
+                    
+                    if len(potential_columns) < 3:  # Need at least 3 classes for multiclass
+                        continue
+                    
+                    # Check if all columns are binary (only 0s and 1s)
+                    all_binary = True
+                    for col in potential_columns:
+                        unique_vals = df[col].dropna().unique()
+                        # Must contain only 0 and 1 (and possibly NaN)
+                        if not set(unique_vals).issubset({0, 1, 0.0, 1.0}):
+                            all_binary = False
+                            break
+                        # Must have both 0 and 1 (not just one value)
+                        if len(unique_vals) < 2:
+                            all_binary = False
+                            break
+                    
+                    if not all_binary:
+                        continue
+                    
+                    # Check if it follows one-hot pattern: exactly one 1 per row
+                    subset_df = df[potential_columns].fillna(0)  # Fill NaN with 0
+                    row_sums = subset_df.sum(axis=1)
+                    
+                    # Calculate how many rows have exactly one 1
+                    one_hot_rows = (row_sums == 1).sum()
+                    total_rows = len(subset_df)
+                    
+                    # Require at least 70% of rows to follow the one-hot pattern
+                    one_hot_ratio = one_hot_rows / total_rows if total_rows > 0 else 0
+                    
+                    if one_hot_ratio >= 0.7:
+                        # Additional checks for stronger confidence
+                        
+                        # Check 1: Column names suggest they're targets/classes
+                        target_like_names = 0
+                        class_like_patterns = ['class', 'target', 'label', 'category', 'type', 
+                                             'group', 'cat_', 'is_', '_class', '_target']
+                        for col in potential_columns:
+                            col_lower = col.lower()
+                            if any(pattern in col_lower for pattern in class_like_patterns):
+                                target_like_names += 1
+                        
+                        # Check 2: Columns are at the very end of the dataset
+                        is_at_end = (end_idx == n_cols)
+                        
+                        # Check 3: Each column has a reasonable distribution (not too sparse)
+                        min_activation_ratio = min(df[col].sum() / len(df) for col in potential_columns)
+                        
+                        # Decision: Accept if it's at the end OR has target-like names OR good distribution
+                        confidence_score = 0
+                        if is_at_end:
+                            confidence_score += 3
+                        if target_like_names >= len(potential_columns) // 2:  # At least half have target-like names
+                            confidence_score += 2
+                        if min_activation_ratio >= 0.05:  # Each class appears in at least 5% of rows
+                            confidence_score += 1
+                        if one_hot_ratio >= 0.9:  # Very strong one-hot pattern
+                            confidence_score += 2
+                        
+                        if confidence_score >= 3:
+                            # Create class names from column names
+                            class_names = [col.replace('_', ' ').replace('target', '').replace('class', '').strip() 
+                                         for col in potential_columns]
+                            # If names are empty or too similar, use the column names directly
+                            if len(set(class_names)) < len(class_names) or any(not name for name in class_names):
+                                class_names = list(potential_columns)
+                            
+                            self.preprocessing_log.append(
+                                f"One-hot encoded target detected: {list(potential_columns)}"
+                            )
+                            self.preprocessing_log.append(
+                                f"One-hot pattern confidence: {one_hot_ratio:.2f} ({one_hot_rows}/{total_rows} rows)"
+                            )
+                            
+                            one_hot_target = {
+                                'column': f"one_hot_target_{start_idx}_{end_idx}",  # Synthetic name
+                                'n_classes': len(potential_columns),
+                                'class_names': class_names,
+                                'one_hot_columns': list(potential_columns),
+                                'is_numeric': True,
+                                'is_named_like_target': target_like_names > 0,
+                                'column_position': start_idx,
+                                'is_last_column': is_at_end,
+                                'one_hot_ratio': one_hot_ratio,
+                                'confidence_score': confidence_score,
+                                'is_one_hot_encoded': True
+                            }
+                            multiclass_candidates.append(one_hot_target)
+                            one_hot_detected = True
+                            break
+                
+                if one_hot_detected:
+                    break
+
+            # If one-hot encoded target was found, return it (highest priority)
+            if one_hot_detected:
+                self.preprocessing_log.append(
+                    f"Detected one-hot encoded multiclass target with {multiclass_candidates[0]['n_classes']} classes"
+                )
+                return multiclass_candidates
+
+            # SECOND: Check if there's already a clear binary target column
+            clear_target_keywords = ['target', 'label', 'class', 'outcome', 'result', 
+                                   'prediction', 'output', 'y', 'diagnosis', 'response']
+            
+            for col in df.columns:
+                col_lower = col.lower()
+                unique_values = df[col].dropna().unique()
+                n_unique = len(unique_values)
+                
+                # If we find a binary column with a target-like name, skip multiclass detection
+                if (n_unique == 2 and 
+                    any(keyword in col_lower for keyword in clear_target_keywords)):
+                    self.preprocessing_log.append(
+                        f"Found clear binary target column '{col}' - skipping multiclass detection"
+                    )
+                    return []  # Return empty list - this is clearly a binary classification problem
+
+            # THIRD: Look for potential multiclass candidates, but be very strict
+            min_classes = 3
+            max_classes = 20  # Reduced from 50 to be more conservative
+
+            for col in df.columns:
+                unique_values = df[col].dropna().unique()
+                n_classes = len(unique_values)
+
+                if min_classes <= n_classes <= max_classes:
+                    # Enhanced checks to avoid flagging feature columns as targets
+                    is_likely_target = False  # Start with False, must prove it's a target
+                    
+                    # Check 1: Skip continuous float columns
+                    if pd.api.types.is_float_dtype(df[col].dtype):
+                        # If more than a couple of values are not whole numbers, treat as continuous
+                        if (df[col].dropna() % 1 != 0).sum() > 2:
+                            continue  # Skip this column
+                    
+                    # Check 2: Skip numeric columns that look like counts/measurements
+                    if pd.api.types.is_numeric_dtype(df[col].dtype):
+                        numeric_values = df[col].dropna()
+                        if len(numeric_values) > 0:
+                            # Check if it looks like a count/measurement feature
+                            is_count_like = (
+                                # All values are integers
+                                all(val == int(val) for val in numeric_values) and
+                                # Values are in a sequential pattern (like 0,1,2,3,4,5)
+                                (max(numeric_values) - min(numeric_values)) < n_classes * 2 and
+                                # Column name suggests it's a feature
+                                any(keyword in col.lower() for keyword in [
+                                    'age', 'count', 'number', 'num', 'pregnancy', 'pregnancies',
+                                    'children', 'kids', 'experience', 'years', 'months', 'days',
+                                    'level', 'score', 'rating', 'rank', 'size', 'length', 'height',
+                                    'weight', 'amount', 'quantity', 'freq', 'frequency'
+                                ])
+                            )
+                            
+                            if is_count_like:
+                                self.preprocessing_log.append(
+                                    f"Skipping '{col}' - appears to be a count/measurement feature"
+                                )
+                                continue  # Skip this column
+                    
+                    # Check 3: Look for strong target column naming patterns
+                    strong_target_keywords = ['target', 'label', 'class', 'species', 'category', 'type', 'grade', 
+                                            'quality', 'status', 'condition', 'disease', 'cancer',
+                                            'tumor', 'sentiment', 'emotion', 'classification']
+                    is_strongly_named_target = any(keyword in col.lower() for keyword in strong_target_keywords)
+                    
+                    # Check 4: If it's in the last column, more likely to be a target
+                    col_position = list(df.columns).index(col)
+                    is_last_column = col_position == len(df.columns) - 1
+                    
+                    # DECISION LOGIC - Much more conservative:
+                    if not pd.api.types.is_numeric_dtype(df[col].dtype):
+                        # Non-numeric columns (strings) are good candidates if reasonably named
+                        if is_strongly_named_target or is_last_column:
+                            is_likely_target = True
+                    elif is_strongly_named_target:
+                        # Numeric columns only if very strongly named like a target
+                        is_likely_target = True
+
+                    if is_likely_target:
+                        candidate = {
+                            'column': col,
+                            'n_classes': n_classes,
+                            'class_names': sorted(list(unique_values)),
+                            'is_numeric': pd.api.types.is_numeric_dtype(df[col].dtype),
+                            'is_named_like_target': is_strongly_named_target,
+                            'column_position': col_position,
+                            'is_last_column': is_last_column,
+                            'is_one_hot_encoded': False
+                        }
+                        multiclass_candidates.append(candidate)
+                        self.preprocessing_log.append(
+                            f"Found multiclass candidate '{col}' with {n_classes} classes."
+                        )
+
+            # FINAL CHECK: If no strong candidates found, don't flag as multiclass
+            if not multiclass_candidates:
+                self.preprocessing_log.append("No clear multiclass target candidates found")
+            
+            return multiclass_candidates
+
+        except Exception as e:
+            error_msg = f"Error during multiclass detection: {str(e)}"
+            logger.error(error_msg)
+            self.preprocessing_log.append(error_msg)
+            return [] # Return empty list on error
+
     def identify_target_column(self, analysis):
         """
         Identify or ask user to specify the target column
@@ -624,7 +878,7 @@ def validate_processed_csv(file_path):
             if not pd.api.types.is_numeric_dtype(df[col]):
                 issues.append(f"Non-numeric feature column: {col}")
         
-        is_valid = len(issues) == 0
+        is_valid = len(issues) == 0;
         
         return {
             'valid': is_valid,
@@ -643,6 +897,274 @@ def validate_processed_csv(file_path):
             'shape': None,
             'columns': None,
             'target_distribution': None
+        }
+
+
+def create_multiclass_dichotomies(input_csv_path, multiclass_column_info, strategy='OVO', output_dir=None):
+    """
+    Create binary dichotomies from a multiclass dataset using ECOC decomposition.
+    Uses the dataset ID system to store dichotomies in the correct location.
+    
+    Parameters:
+    -----------
+    input_csv_path : str
+        Path to the input CSV file with multiclass target
+    multiclass_column_info : dict
+        Information about the multiclass column from detect_multiclass()
+    strategy : str
+        Decomposition strategy: 'OVO' (One-vs-One) or 'OVA' (One-vs-All)
+    output_dir : str, optional
+        Directory to save the dichotomy files. If None, uses dataset ID system
+        
+    Returns:
+    --------
+    dict : Information about the created dichotomies
+    """
+    import sys
+    import os
+    import numpy as np
+    import pandas as pd
+    
+    try:
+        # Import dataset ID functions
+        current_file_dir = os.path.dirname(os.path.abspath(__file__))
+        sys.path.insert(0, current_file_dir)
+        from data_generator import generate_real_data_id, get_dataset_directory_structure
+        
+        # Generate dataset ID for this multiclass dataset
+        dataset_id = generate_real_data_id(input_csv_path)
+        
+        # Get dataset directory structure
+        dataset_paths = get_dataset_directory_structure(dataset_id)
+        dataset_dir = dataset_paths["dataset_dir"]
+        
+        # Create dataset directory if it doesn't exist
+        os.makedirs(dataset_dir, exist_ok=True)
+        
+        # Check if dichotomies already exist for this strategy
+        dichotomy_pattern = os.path.join(dataset_dir, f"{dataset_id}_{strategy.lower()}_dichotomy_*.csv")
+        existing_files = []
+        dichotomy_index = 1
+        while True:
+            dichotomy_file = os.path.join(dataset_dir, f"{dataset_id}_{strategy.lower()}_dichotomy_{dichotomy_index:02d}.csv")
+            if os.path.exists(dichotomy_file):
+                existing_files.append(dichotomy_file)
+                dichotomy_index += 1
+            else:
+                break
+        
+        # If dichotomies already exist, return them
+        if existing_files:
+            # When loading from cache, we still need to provide n_classes, class_names, and code_matrix
+            df_for_n_classes = pd.read_csv(input_csv_path)
+            
+            if multiclass_column_info.get('is_one_hot_encoded', False):
+                n_classes = len(multiclass_column_info['class_names'])
+                class_names = multiclass_column_info['class_names']
+            else:
+                target_column_for_n_classes = multiclass_column_info['column']
+                n_classes = df_for_n_classes[target_column_for_n_classes].nunique()
+                class_names = sorted(df_for_n_classes[target_column_for_n_classes].dropna().unique())
+
+            # Re-create the ECOC encoder to get the code matrix
+            try:
+                from ecoc import ECOC
+            except ImportError as e:
+                raise ImportError(f"Could not import ECOC. Error: {e}")
+            
+            labels = np.arange(n_classes)
+            strategy_upper = strategy.upper()
+            ecoc = ECOC(encoding=strategy_upper, labels=labels)
+            code_matrix = ecoc._code_matrix
+
+            # Re-create the dichotomies information by reading the files
+            dichotomies = []
+            for i, f in enumerate(existing_files):
+                binary_df = pd.read_csv(f)
+                positive_classes = [class_names[j] for j in range(n_classes) if code_matrix[j, i] == 1]
+                negative_classes = [class_names[j] for j in range(n_classes) if code_matrix[j, i] == -1]
+                
+                dichotomies.append({
+                    'index': i + 1,
+                    'file': f,
+                    'positive_classes': positive_classes,
+                    'negative_classes': negative_classes,
+                    'n_instances': len(binary_df),
+                    'n_positive': (binary_df['target'] == 1).sum(),
+                    'n_negative': (binary_df['target'] == 0).sum()
+                })
+
+            return {
+                'success': True,
+                'strategy': strategy,
+                'dataset_id': dataset_id,
+                'n_classes': n_classes,
+                'class_names': class_names,
+                'n_dichotomies': len(existing_files),
+                'dichotomies': dichotomies,
+                'dichotomy_files': existing_files,
+                'code_matrix': code_matrix.tolist(),
+                'output_dir': dataset_dir,
+                'base_name': dataset_id,
+                'from_cache': True
+            }
+
+        # Read the input CSV
+        df = pd.read_csv(input_csv_path)
+        
+        # Handle one-hot encoded targets
+        if multiclass_column_info.get('is_one_hot_encoded', False):
+            one_hot_columns = multiclass_column_info['one_hot_columns']
+            class_names = multiclass_column_info['class_names']
+            
+            # Convert one-hot to single column
+            target_values = []
+            for idx, row in df.iterrows():
+                # Find which class is active (has value 1)
+                active_classes = []
+                for i, col in enumerate(one_hot_columns):
+                    if row[col] == 1:
+                        active_classes.append(i)
+                
+                if len(active_classes) == 1:
+                    target_values.append(active_classes[0])
+                elif len(active_classes) == 0:
+                    target_values.append(-1)  # No class active
+                else:
+                    target_values.append(active_classes[0])  # Take first if multiple
+            
+            # Remove one-hot columns and add single target column
+            feature_df = df.drop(columns=one_hot_columns)
+            feature_df['multiclass_target'] = target_values
+            target_column = 'multiclass_target'
+            
+        else:
+            # Regular multiclass column
+            target_column = multiclass_column_info['column']
+            feature_df = df.copy()
+        
+        # Get feature columns (everything except target)
+        feature_columns = [col for col in feature_df.columns if col != target_column]
+        
+        # Get unique classes and create mapping
+        unique_classes = sorted(feature_df[target_column].dropna().unique())
+        n_classes = len(unique_classes)
+        
+        if n_classes < 3:
+            raise ValueError(f"Not enough classes for multiclass decomposition: {n_classes}")
+        
+        # Create class mapping
+        class_to_idx = {cls: idx for idx, cls in enumerate(unique_classes)}
+        
+        # Import ECOC from MC_Label_Switching
+        # Get the absolute path to the MC_Label_Switching libraries directory
+        current_file_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_file_dir))  # Go up to /home/ubuntu/Downloads/Code
+        mc_path = os.path.join(project_root, 'MC_Label_Switching-main', 'libraries')
+        
+        if not os.path.exists(mc_path):
+            raise ImportError(f"MC_Label_Switching libraries directory not found at: {mc_path}")
+        
+        if mc_path not in sys.path:
+            sys.path.insert(0, mc_path)
+        
+        try:
+            from ecoc import ECOC
+        except ImportError as e:
+            raise ImportError(f"Could not import ECOC from {mc_path}. Error: {e}")
+        
+        # Create ECOC encoder
+        labels = np.arange(n_classes)
+        # Convert strategy to uppercase as ECOC expects 'OVO' or 'OVA', not 'ovo' or 'ova'
+        strategy_upper = strategy.upper()
+        ecoc = ECOC(encoding=strategy_upper, labels=labels)
+        code_matrix = ecoc._code_matrix
+        
+        dichotomies = []
+        dichotomy_files = []
+        
+        # Create each dichotomy
+        for dict_idx in range(code_matrix.shape[1]):
+            dichotomy_column = code_matrix[:, dict_idx]
+            
+            # Create binary dataset for this dichotomy
+            binary_data = []
+            
+            for idx, row in feature_df.iterrows():
+                if pd.isna(row[target_column]):
+                    continue
+                    
+                original_class = row[target_column]
+                if original_class not in class_to_idx:
+                    continue
+                    
+                class_idx = class_to_idx[original_class]
+                dichotomy_value = dichotomy_column[class_idx]
+                
+                # Skip instances with 0 (excluded from this dichotomy)
+                if dichotomy_value == 0:
+                    continue
+                
+                # Convert to binary (1 -> 1, -1 -> 0)
+                binary_target = 1 if dichotomy_value == 1 else 0
+                
+                # Create row with features + binary target
+                binary_row = {}
+                for feat_col in feature_columns:
+                    binary_row[feat_col] = row[feat_col]
+                binary_row['target'] = binary_target
+                
+                binary_data.append(binary_row)
+            
+            if len(binary_data) > 0:
+                # Create DataFrame and save
+                binary_df = pd.DataFrame(binary_data)
+                
+                # Create filename using dataset ID system
+                dichotomy_file = os.path.join(dataset_dir, f"{dataset_id}_{strategy.lower()}_dichotomy_{dict_idx+1:02d}.csv")
+                binary_df.to_csv(dichotomy_file, index=False)
+                
+                dichotomy_files.append(dichotomy_file)
+                
+                # Store dichotomy info
+                positive_classes = [unique_classes[i] for i in range(n_classes) if dichotomy_column[i] == 1]
+                negative_classes = [unique_classes[i] for i in range(n_classes) if dichotomy_column[i] == -1]
+                
+                dichotomies.append({
+                    'index': dict_idx + 1,
+                    'file': dichotomy_file,
+                    'positive_classes': positive_classes,
+                    'negative_classes': negative_classes,
+                    'n_instances': len(binary_df),
+                    'n_positive': (binary_df['target'] == 1).sum(),
+                    'n_negative': (binary_df['target'] == 0).sum()
+                })
+        
+        # Also save the original dataset in the ID directory for reference
+        original_dataset_file = os.path.join(dataset_dir, f"{dataset_id}_original.csv")
+        if not os.path.exists(original_dataset_file):
+            df.to_csv(original_dataset_file, index=False)
+        
+        return {
+            'success': True,
+            'strategy': strategy,
+            'dataset_id': dataset_id,
+            'n_classes': n_classes,
+            'class_names': unique_classes,
+            'n_dichotomies': len(dichotomies),
+            'dichotomies': dichotomies,
+            'dichotomy_files': dichotomy_files,
+            'code_matrix': code_matrix.tolist(),
+            'output_dir': dataset_dir,
+            'base_name': dataset_id,
+            'from_cache': False
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e),
+            'traceback': str(e.__class__.__name__)
         }
 
 

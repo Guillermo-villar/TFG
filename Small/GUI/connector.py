@@ -16,6 +16,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, parent_dir)
 
 import run_test
+import run_mc
 from gui_interface import MLExperimentGUI, LanguageSetupWindow
 
 
@@ -28,17 +29,29 @@ class ExperimentRunner:
         self.experiment_process = None
         self.latest_log_file = None
     
-    def run_experiment(self, level, study_mode="full_study", data_source="synthetic", csv_path=None):
+    def run_experiment(self, level, study_mode="full_study", data_source="synthetic", csv_path=None, multiclass_strategy=None, multiclass_dichotomies=None):
         """Execute the experiment with given parameters"""
         try:
-            # Modify config based on data source
-            self.update_config(data_source, csv_path)
+            # Modify config based on data source and multiclass settings
+            self.update_config(data_source, csv_path, multiclass_strategy)
 
             # Reset latest log file on new run
             self.latest_log_file = None
+
+            # Determine the target function and arguments based on whether it's a multiclass run
+            if multiclass_dichotomies:
+                # This is a multiclass experiment, so we use the new orchestrator
+                target_func = run_mc.main
+                args = (multiclass_dichotomies, level, study_mode)
+            else:
+                # This is a standard single/binary experiment
+                target_func = run_test.main
+                args = (level, study_mode)
+
             # Create and start a new process for the experiment
-            self.experiment_process = multiprocessing.Process(target=run_test.main, args=(level, study_mode))
+            self.experiment_process = multiprocessing.Process(target=target_func, args=args)
             self.experiment_process.start()
+            
             # We don't join, so the GUI remains responsive
             return "Experiment started in a new process."
         except Exception as e:
@@ -92,8 +105,8 @@ class ExperimentRunner:
                     csv_files.append(os.path.join(root, file))
         return csv_files
 
-    def update_config(self, data_source, csv_path):
-        """Update config.yaml based on data source selection"""
+    def update_config(self, data_source, csv_path, multiclass_strategy=None):
+        """Update config.yaml based on data source selection and multiclass settings"""
         try:
             with open(self.config_path, 'r') as f:
                 config = yaml.safe_load(f)
@@ -107,6 +120,17 @@ class ExperimentRunner:
                 config['data']['generate_new'] = False
                 if csv_path:
                     config['data']['external_dataset'] = csv_path
+
+            # Add multiclass configuration
+            if 'multiclass' not in config:
+                config['multiclass'] = {}
+            
+            if multiclass_strategy:
+                config['multiclass']['enabled'] = True
+                config['multiclass']['strategy'] = multiclass_strategy
+            else:
+                config['multiclass']['enabled'] = False
+                config['multiclass']['strategy'] = None
 
             with open(self.config_path, 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)

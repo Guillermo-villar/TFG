@@ -116,8 +116,12 @@ def get_dataset_specific_best_runner_path(dataset_dir, dataset_id):
     """Get the path for a dataset-specific best_runner file in the dataset directory"""
     return os.path.join(dataset_dir, f"best_runner_{dataset_id}.json")
 
-def create_run_directory_for_dataset(dataset_id, base_datasets_dir=None):
-    """Create a timestamped run directory for a dataset and return paths"""
+def create_run_directory_for_dataset(dataset_id, base_dir=None):
+    """
+    Create a timestamped run directory for a dataset and return paths.
+    If base_dir is provided, it creates the run inside 'base_dir/runs/'.
+    Otherwise, it uses the standard data_generator logic.
+    """
     import datetime
     
     # Import data_generator module
@@ -126,7 +130,20 @@ def create_run_directory_for_dataset(dataset_id, base_datasets_dir=None):
     import data_generator
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_paths = data_generator.get_run_directory_structure(dataset_id, timestamp, base_datasets_dir)
+    
+    if base_dir:
+        # This is the new logic for multiclass runs, creating a run inside the specified sub-directory
+        run_dir = os.path.join(base_dir, "runs", timestamp)
+        os.makedirs(run_dir, exist_ok=True)
+        run_paths = {
+            "run_dir": run_dir,
+            "results_csv": os.path.join(run_dir, "test_results.csv"),
+            "terminal_output": os.path.join(run_dir, "terminal_output.txt"),
+            "timestamp": timestamp
+        }
+    else:
+        # Fallback to original logic for standalone runs
+        run_paths = data_generator.get_run_directory_structure(dataset_id, timestamp)
     
     # Ensure run directory exists
     ensure_dir_exists(run_paths["terminal_output"])  # This creates the run directory
@@ -215,7 +232,7 @@ def setup_logging(log_file_path, log_level="INFO"):
     
     logger.info(f"Logs serán guardados en: {log_file_path}")
 
-def main(level=None, study_mode="full_study"):
+def main(level=None, study_mode="full_study", output_dir=None):
     # Set up signal handler for graceful interruption
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -255,76 +272,77 @@ def main(level=None, study_mode="full_study"):
     # Import required modules
     data_generator, test_module = load_modules()
     
-    # Create output configuration and ensure directory exists
-    base_results_file_path = resolve_path(script_dir, config["output"]["results_file"])
-    # No longer create timestamped results dir here - will be dataset-specific
-    
-    # Set dataset path (single CSV file)
+    # --- Dataset and Directory Setup ---
     dataset_path = None
     dataset_params = {}
     dataset_id = None
     dataset_dir = None
-    
-    # Check if we need to generate new data or use existing dataset
-    if config["data"]["generate_new"]:
-        logger.info("Generating new synthetic dataset")
+
+    if output_dir:
+        # --- Multiclass Dichotomy Mode ---
+        # The orchestrator (run_mc.py) has provided a specific directory for this run.
+        logger.info(f"Running in multiclass dichotomy mode. Output will be saved to: {output_dir}")
+        dataset_dir = output_dir
         
-        # Generate the dataset with new structure
-        data_info = data_generator.generate_synthetic_data(
-            params=config["data"]["params"]
-        )
+        # The dataset path is taken directly from the config, which run_mc updated.
+        dataset_path = resolve_path(script_dir, config["data"]["external_dataset"])
         
-        # Get the generated dataset path, ID, and directory
-        dataset_path = data_info['file_path']
-        dataset_id = data_info['dataset_id']
-        dataset_dir = data_info['dataset_dir']
+        # The dataset_id is now based on the dichotomy's unique index to avoid collisions.
+        dataset_id = config["data"].get("dichotomy_id", f"dichotomy_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
         
-        # Save the dataset parameters for logging
-        dataset_params = config["data"]["params"].copy()
-        
-        # Log dataset statistics
-        logger.info(f"Dataset generated and saved to: {dataset_path}")
-        logger.info(f"Dataset ID: {dataset_id}")
-        logger.info(f"Dataset directory: {dataset_dir}")
-        logger.info("Dataset statistics:")
-        for metric, value in data_info["stats"].items():
-            if isinstance(value, dict):
-                logger.info(f"  {metric}:")
-                for submetric, subvalue in value.items():
-                    logger.info(f"    {submetric}: {subvalue}")
-            else:
-                logger.info(f"  {metric}: {value}")
-    else:
-        logger.info("Using external dataset from config")
-        
-        # Use dataset path from external_dataset
-        original_dataset_path = resolve_path(script_dir, config["data"]["external_dataset"])
-        
-        # Set up directory structure for real data
-        data_info = data_generator.setup_real_dataset_structure(original_dataset_path)
-        
-        dataset_path = data_info['file_path']
-        dataset_id = data_info['dataset_id']
-        dataset_dir = data_info['dataset_dir']
-        
-        # Add information about the external dataset
         dataset_params = {
-            "source": "external",
+            "source": "multiclass_dichotomy",
             "path": dataset_path,
-            "original_path": data_info['original_path']
+            "dichotomy_id": dataset_id
         }
-        
-        logger.info(f"External dataset copied to: {dataset_path}")
-        logger.info(f"Dataset ID: {dataset_id}")
-        logger.info(f"Dataset directory: {dataset_dir}")
+        logger.info(f"Dataset ID for this dichotomy: {dataset_id}")
+        logger.info(f"Dataset directory for this dichotomy: {dataset_dir}")
+
+    else:
+        # --- Standard Standalone Mode ---
+        # Check if we need to generate new data or use existing dataset
+        if config["data"]["generate_new"]:
+            logger.info("Generating new synthetic dataset")
+            data_info = data_generator.generate_synthetic_data(params=config["data"]["params"])
+            dataset_path = data_info['file_path']
+            dataset_id = data_info['dataset_id']
+            dataset_dir = data_info['dataset_dir']
+            dataset_params = config["data"]["params"].copy()
+            
+            logger.info(f"Dataset generated and saved to: {dataset_path}")
+            logger.info(f"Dataset ID: {dataset_id}")
+            logger.info(f"Dataset directory: {dataset_dir}")
+            logger.info("Dataset statistics:")
+            for metric, value in data_info["stats"].items():
+                if isinstance(value, dict):
+                    logger.info(f"  {metric}:")
+                    for submetric, subvalue in value.items():
+                        logger.info(f"    {submetric}: {subvalue}")
+                else:
+                    logger.info(f"  {metric}: {value}")
+        else:
+            logger.info("Using external dataset from config")
+            original_dataset_path = resolve_path(script_dir, config["data"]["external_dataset"])
+            data_info = data_generator.setup_real_dataset_structure(original_dataset_path)
+            dataset_path = data_info['file_path']
+            dataset_id = data_info['dataset_id']
+            dataset_dir = data_info['dataset_dir']
+            dataset_params = {
+                "source": "external",
+                "path": dataset_path,
+                "original_path": data_info['original_path']
+            }
+            logger.info(f"External dataset copied to: {dataset_path}")
+            logger.info(f"Dataset ID: {dataset_id}")
+            logger.info(f"Dataset directory: {dataset_dir}")
     
     # Validate that the dataset file exists
     if not dataset_path or not os.path.exists(dataset_path):
         logger.error(f"Dataset file {dataset_path} does not exist")
         sys.exit(1)
     
-    # Create a new run directory for this experiment
-    run_paths = create_run_directory_for_dataset(dataset_id)
+    # Create a new run directory for this experiment inside the determined dataset_dir
+    run_paths = create_run_directory_for_dataset(dataset_id, base_dir=dataset_dir)
     
     # Set up run-specific file paths
     results_file_path = run_paths["results_csv"]
