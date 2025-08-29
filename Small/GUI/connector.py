@@ -10,6 +10,7 @@ import os
 import tkinter as tk
 import multiprocessing
 import yaml
+import json
 
 # Add parent directory to import run_test
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -163,6 +164,7 @@ class ExperimentRunner:
     def delete_dataset_progress(self, data_source="synthetic", csv_path=None):
         """
         Delete all progress data for a dataset, allowing fresh start
+        Enhanced to support both binary and multiclass experiments
         
         Parameters:
         -----------
@@ -206,7 +208,35 @@ class ExperimentRunner:
             
             deleted_items = []
             
-            # Delete best_runner JSON file if it exists
+            # Check for multiclass experiment files first
+            multiclass_progress_file = os.path.join(dataset_dir, f"multiclass_progress_{dataset_id}.json")
+            multiclass_best_runner_file = os.path.join(dataset_dir, f"multiclass_best_runner_{dataset_id}.json")
+            
+            is_multiclass = os.path.exists(multiclass_progress_file) or os.path.exists(multiclass_best_runner_file)
+            
+            if is_multiclass:
+                # Delete multiclass-specific files
+                if os.path.exists(multiclass_progress_file):
+                    os.remove(multiclass_progress_file)
+                    deleted_items.append("Multiclass progress file")
+                
+                if os.path.exists(multiclass_best_runner_file):
+                    os.remove(multiclass_best_runner_file)
+                    deleted_items.append("Multiclass best runner configuration")
+                
+                # Delete individual dichotomy run directories
+                dichotomy_dirs_deleted = 0
+                if os.path.exists(dataset_dir):
+                    for item in os.listdir(dataset_dir):
+                        item_path = os.path.join(dataset_dir, item)
+                        if os.path.isdir(item_path) and item.startswith("dichotomy_") and item.endswith("_run"):
+                            shutil.rmtree(item_path)
+                            dichotomy_dirs_deleted += 1
+                
+                if dichotomy_dirs_deleted > 0:
+                    deleted_items.append(f"Dichotomy run directories ({dichotomy_dirs_deleted})")
+            
+            # Delete standard binary experiment files
             if os.path.exists(best_runner_file):
                 os.remove(best_runner_file)
                 deleted_items.append("Best runner configuration")
@@ -216,22 +246,28 @@ class ExperimentRunner:
                 shutil.rmtree(runs_dir)
                 deleted_items.append("All run history")
             
-            # If the entire dataset directory is empty now (except for the dataset CSV), we can optionally remove it
-            # But we'll keep the dataset CSV file itself as it might be needed
+            # Delete main results CSV if it exists (dataset level)
+            main_results_csv = os.path.join(dataset_dir, "test_results.csv")
+            if os.path.exists(main_results_csv):
+                os.remove(main_results_csv)
+                deleted_items.append("Main results file")
             
             if deleted_items:
+                experiment_type = "multiclass" if is_multiclass else "binary"
                 return {
                     "success": True,
-                    "message": f"Successfully deleted: {', '.join(deleted_items)}",
+                    "message": f"Successfully deleted {experiment_type} experiment progress: {', '.join(deleted_items)}",
                     "dataset_id": dataset_id,
-                    "deleted_items": deleted_items
+                    "deleted_items": deleted_items,
+                    "experiment_type": experiment_type
                 }
             else:
                 return {
                     "success": True,
                     "message": "No progress data found to delete (dataset was already fresh)",
                     "dataset_id": dataset_id,
-                    "deleted_items": []
+                    "deleted_items": [],
+                    "experiment_type": "none"
                 }
                 
         except Exception as e:
@@ -246,6 +282,7 @@ class ExperimentRunner:
         """
         Get the status of a dataset (new, in progress, or completed)
         Returns a dictionary with detailed status information including ETA
+        Enhanced to support both binary and multiclass experiments
         """
         try:
             # Import required modules
@@ -272,18 +309,28 @@ class ExperimentRunner:
                     params = {"file_path": csv_path}
                     dataset_id = data_generator.generate_dataset_id(params, "real")
             
+            # First check for multiclass experiment
+            dataset_paths = data_generator.get_dataset_directory_structure(dataset_id)
+            multiclass_status = self.get_multiclass_status(dataset_paths, dataset_id, current_capilaridad_config, current_level)
+            
+            if multiclass_status:
+                # This is a multiclass experiment, return multiclass status
+                return multiclass_status
+            
+            # If not multiclass, continue with binary experiment logic
             # Get dataset directory structure
             dataset_paths = data_generator.get_dataset_directory_structure(dataset_id)
             best_runner_file = dataset_paths["best_runner_json"]
             
-            # Check if best_runner file exists
+            # Check if best_runner file exists (binary experiment)
             if not os.path.exists(best_runner_file):
                 return {
                     "status": "new",
                     "dataset_id": dataset_id,
                     "message": "Dataset has not been studied before",
                     "current_capilaridad_config": current_capilaridad_config,
-                    "current_level": current_level
+                    "current_level": current_level,
+                    "experiment_type": "binary"
                 }
             
             # Load study progress
@@ -297,7 +344,8 @@ class ExperimentRunner:
                     "message": "Dataset has old format study data",
                     "best_runner": study_data.get("best_runner") if study_data else None,
                     "current_capilaridad_config": current_capilaridad_config,
-                    "current_level": current_level
+                    "current_level": current_level,
+                    "experiment_type": "binary"
                 }
             
             exec_state = study_data["execution_state"]
@@ -335,6 +383,7 @@ class ExperimentRunner:
                 "previous_level": previous_level,
                 "current_level": current_level,
                 "best_metric_so_far": exec_state.get("best_metric_so_far"),
+                "experiment_type": "binary",
                 **timing_info  # Add timing information
             }
             
@@ -359,8 +408,360 @@ class ExperimentRunner:
                 "status": "error",
                 "message": f"Error checking dataset status: {str(e)}",
                 "current_capilaridad_config": current_capilaridad_config if 'current_capilaridad_config' in locals() else {},
-                "current_level": current_level
+                "current_level": current_level,
+                "experiment_type": "unknown"
             }
+
+    def get_multiclass_status(self, dataset_paths, dataset_id, current_capilaridad_config, current_level):
+        """
+        Check for multiclass experiment status and return appropriately formatted progress.
+        
+        Parameters:
+        -----------
+        dataset_paths : dict
+            Standard dataset directory paths
+        dataset_id : str
+            The dataset ID
+        current_capilaridad_config : dict
+            Current capilaridad configuration
+        current_level : int
+            Current capilaridad level
+            
+        Returns:
+        --------
+        dict or None : Multiclass status information if multiclass experiment exists, None otherwise
+        """
+        try:
+            # Check for multiclass progress file
+            multiclass_progress_file = os.path.join(dataset_paths["dataset_dir"], f"multiclass_progress_{dataset_id}.json")
+            multiclass_best_runner_file = os.path.join(dataset_paths["dataset_dir"], f"multiclass_best_runner_{dataset_id}.json")
+            
+            if not os.path.exists(multiclass_progress_file):
+                return None  # No multiclass experiment
+            
+            # Load multiclass progress
+            with open(multiclass_progress_file, 'r') as f:
+                multiclass_data = json.load(f)
+            
+            # Load multiclass best runner if available
+            multiclass_best_runner = None
+            if os.path.exists(multiclass_best_runner_file):
+                with open(multiclass_best_runner_file, 'r') as f:
+                    multiclass_best_runner = json.load(f)
+            
+            # Parse multiclass progress to match the expected format
+            dichotomies = multiclass_data.get("dichotomies", {})
+            total_dichotomies = len(dichotomies)
+            completed_dichotomies = sum(1 for d in dichotomies.values() if d.get("status") == "completed")
+            in_progress_dichotomies = sum(1 for d in dichotomies.values() if d.get("status") == "in_progress")
+            
+            # Calculate overall progress as if it were Stage 1
+            # Each dichotomy represents a "configuration" in our binary-like progress format
+            stage1_progress = f"{completed_dichotomies}/{total_dichotomies}"
+            stage2_progress = "0/0"  # Multiclass doesn't have traditional Stage 2
+            
+            # Determine current status
+            if completed_dichotomies == total_dichotomies and total_dichotomies > 0:
+                overall_status = "complete"
+                message = f"Multiclass study is complete ({completed_dichotomies}/{total_dichotomies} dichotomies)"
+                stage1_complete = True
+                current_stage = 2  # Mark as completed
+            elif in_progress_dichotomies > 0:
+                overall_status = "stage1_in_progress"
+                message = f"Multiclass study in progress ({completed_dichotomies}/{total_dichotomies} dichotomies completed)"
+                stage1_complete = False
+                current_stage = 1
+            elif completed_dichotomies > 0:
+                overall_status = "stage1_in_progress"
+                message = f"Multiclass study resumed ({completed_dichotomies}/{total_dichotomies} dichotomies completed)"
+                stage1_complete = False
+                current_stage = 1
+            else:
+                overall_status = "new"
+                message = f"Multiclass study ready to start ({total_dichotomies} dichotomies)"
+                stage1_complete = False
+                current_stage = 1
+            
+            # Calculate timing information for multiclass
+            timing_info = self.get_multiclass_timing_and_eta(dataset_paths, completed_dichotomies, total_dichotomies)
+            
+            # Get strategy and class information
+            strategy = multiclass_data.get("strategy", "unknown").upper()
+            n_classes = multiclass_data.get("n_classes", "unknown")
+            class_names = multiclass_data.get("class_names", [])
+            
+            # Best metric from multiclass best runner
+            best_metric_so_far = None
+            if multiclass_best_runner:
+                best_metric_so_far = multiclass_best_runner.get("best_metric_so_far")
+            
+            return {
+                "status": "existing",
+                "dataset_id": dataset_id,
+                "stage1_completed": stage1_complete,
+                "stage1_progress": stage1_progress,
+                "stage2_progress": stage2_progress,
+                "current_stage": current_stage,
+                "last_updated": multiclass_data.get("last_updated", "Unknown"),
+                "best_runner": multiclass_best_runner.get("best_runner_config") if multiclass_best_runner else None,
+                "study_mode": "multiclass",
+                "capilaridad_config": {"level": current_level},  # Simple capilaridad info
+                "previous_capilaridad_config": {"level": current_level},
+                "current_capilaridad_config": current_capilaridad_config,
+                "previous_level": current_level,
+                "current_level": current_level,
+                "best_metric_so_far": best_metric_so_far,
+                "experiment_type": "multiclass",
+                "overall_status": overall_status,
+                "message": message,
+                # Multiclass-specific information
+                "multiclass_info": {
+                    "strategy": strategy,
+                    "n_classes": n_classes,
+                    "class_names": class_names[:5],  # Show first 5 class names
+                    "total_dichotomies": total_dichotomies,
+                    "completed_dichotomies": completed_dichotomies,
+                    "in_progress_dichotomies": in_progress_dichotomies,
+                    "current_dichotomy": multiclass_data.get("summary", {}).get("current_dichotomy"),
+                    "current_dichotomy_index": multiclass_data.get("summary", {}).get("current_dichotomy_index"),
+                    "dichotomy_details": dichotomies
+                },
+                **timing_info  # Add timing information
+            }
+            
+        except Exception as e:
+            # If there's an error reading multiclass progress, return None to fall back to binary check
+            return None
+
+    def get_any_running_experiment_status(self):
+        """
+        Scan for any running experiments (binary or multiclass) and return their status.
+        This is useful when the GUI is showing 'running' but no specific dataset is selected.
+        """
+        try:
+            import glob
+            import os
+            import data_generator
+            
+            # Look for any progress files that might indicate running experiments
+            datasets_dir = os.path.join(self.parent_dir, "datasets", "IDs")
+            if not os.path.exists(datasets_dir):
+                return None
+            
+            # Check for multiclass progress files first
+            multiclass_files = glob.glob(os.path.join(datasets_dir, "*", "multiclass_progress_*.json"))
+            for progress_file in multiclass_files:
+                try:
+                    with open(progress_file, 'r') as f:
+                        progress_data = json.load(f)
+                    
+                    # Check if it's incomplete (still running)
+                    # The summary information is in the "summary" section
+                    summary = progress_data.get("summary", {})
+                    completed = summary.get("completed_dichotomies", 0)
+                    total = summary.get("total_dichotomies", 0)
+                    in_progress = summary.get("in_progress_dichotomies", 0)
+                    
+                    # A multiclass experiment is running if:
+                    # 1. Not all dichotomies are completed, OR
+                    # 2. There are dichotomies in progress
+                    if (completed < total and total > 0) or in_progress > 0:
+                        # This is an incomplete multiclass experiment
+                        dataset_id = progress_data.get("dataset_id", "unknown")
+                        
+                        # Get the original CSV path
+                        dataset_dir = os.path.dirname(progress_file)
+                        original_csv = os.path.join(dataset_dir, f"{dataset_id}_original.csv")
+                        
+                        if os.path.exists(original_csv):
+                            # Return status for this running multiclass experiment
+                            with open(self.config_path, 'r') as f:
+                                config = yaml.safe_load(f)
+                            current_capilaridad_config = config.get("capilaridad_levels", {}).get(2, {})
+                            
+                            # Use the existing multiclass status method
+                            dataset_paths = data_generator.get_dataset_directory_structure(dataset_id)
+                            return self.get_multiclass_status(dataset_paths, dataset_id, current_capilaridad_config, 2)
+                except Exception:
+                    continue
+            
+            # Check for binary progress files
+            binary_files = glob.glob(os.path.join(datasets_dir, "*", "best_runner_*.json"))
+            for progress_file in binary_files:
+                try:
+                    from test_LSEnsemble import load_study_progress
+                    study_data = load_study_progress(progress_file)
+                    
+                    if study_data and "execution_state" in study_data:
+                        exec_state = study_data["execution_state"]
+                        stage1_complete = exec_state.get("stage1_completed", False)
+                        stage1_pos = exec_state.get("stage1_position", 0)
+                        stage1_total = exec_state.get("stage1_total", 0)
+                        stage2_pos = exec_state.get("stage2_position", 0)
+                        stage2_total = exec_state.get("stage2_total", 0)
+                        
+                        # Check if this experiment is incomplete
+                        if not stage1_complete or (stage1_complete and stage2_pos < stage2_total):
+                            # Extract dataset_id from file path
+                            dataset_id = os.path.basename(progress_file).replace("best_runner_", "").replace(".json", "")
+                            
+                            # Get the dataset path
+                            dataset_dir = os.path.dirname(progress_file)
+                            csv_files = glob.glob(os.path.join(dataset_dir, "*.csv"))
+                            
+                            if csv_files:
+                                # Return binary experiment status
+                                with open(self.config_path, 'r') as f:
+                                    config = yaml.safe_load(f)
+                                current_capilaridad_config = config.get("capilaridad_levels", {}).get(2, {})
+                                
+                                # Generate a minimal status response
+                                return {
+                                    "status": "existing",
+                                    "dataset_id": dataset_id,
+                                    "experiment_type": "binary",
+                                    "stage1_completed": stage1_complete,
+                                    "stage1_progress": f"{stage1_pos}/{stage1_total}",
+                                    "stage2_progress": f"{stage2_pos}/{stage2_total}",
+                                    "current_stage": exec_state.get("current_stage", 1),
+                                    "message": f"Binary experiment in progress"
+                                }
+                except Exception:
+                    continue
+            
+            return None
+            
+        except Exception as e:
+            return None
+
+    def get_multiclass_timing_and_eta(self, dataset_paths, completed_dichotomies, total_dichotomies):
+        """
+        Calculate timing statistics and ETA for multiclass experiments.
+        
+        Parameters:
+        -----------
+        dataset_paths : dict
+            Dataset directory paths
+        completed_dichotomies : int
+            Number of completed dichotomies
+        total_dichotomies : int
+            Total number of dichotomies
+            
+        Returns:
+        --------
+        dict : Timing information similar to binary experiments
+        """
+        timing_info = {
+            "avg_time_per_run": 0,
+            "total_time_elapsed": 0,
+            "eta_seconds": None,
+            "eta_formatted": "Unknown",
+            "total_runs_completed": completed_dichotomies,
+            "runs_per_hour": 0,
+            "remaining_runs": total_dichotomies - completed_dichotomies,
+            "current_progress": completed_dichotomies,
+            "total_stage_runs": total_dichotomies,
+            "stage_name": "Dichotomies",
+            "dataset_size": 0,
+            "using_estimate": True
+        }
+        
+        try:
+            import pandas as pd
+            import numpy as np
+            from datetime import datetime, timedelta
+            
+            # Look for timing information from completed dichotomy runs
+            actual_times = []
+            
+            # Check individual dichotomy run directories for timing data
+            dataset_dir = dataset_paths["dataset_dir"]
+            
+            for i in range(1, completed_dichotomies + 1):
+                dichotomy_run_dir = os.path.join(dataset_dir, f"dichotomy_{i:02d}_run")
+                if os.path.exists(dichotomy_run_dir):
+                    # Look for timing data in the dichotomy's results
+                    dichotomy_results_csv = os.path.join(dichotomy_run_dir, "test_results.csv")
+                    if os.path.exists(dichotomy_results_csv):
+                        try:
+                            df = pd.read_csv(dichotomy_results_csv)
+                            if 'time_taken' in df.columns:
+                                # Sum all time_taken values for this dichotomy
+                                dichotomy_total_time = df['time_taken'].sum()
+                                actual_times.append(dichotomy_total_time)
+                        except Exception:
+                            continue
+            
+            # Calculate timing estimates
+            if actual_times:
+                # Use actual timing data
+                avg_time_per_dichotomy = np.mean(actual_times)
+                total_elapsed = sum(actual_times)
+                
+                # Calculate ETA for remaining dichotomies
+                remaining_dichotomies = total_dichotomies - completed_dichotomies
+                if remaining_dichotomies > 0:
+                    eta_seconds = remaining_dichotomies * avg_time_per_dichotomy
+                    
+                    # Format ETA
+                    if eta_seconds < 3600:
+                        minutes = int(eta_seconds / 60)
+                        eta_formatted = f"{minutes}m"
+                    elif eta_seconds < 86400:
+                        hours = int(eta_seconds / 3600)
+                        minutes = int((eta_seconds % 3600) / 60)
+                        eta_formatted = f"{hours}h {minutes}m"
+                    else:
+                        days = int(eta_seconds / 86400)
+                        hours = int((eta_seconds % 86400) / 3600)
+                        eta_formatted = f"{days}d {hours}h"
+                    
+                    timing_info.update({
+                        "eta_seconds": eta_seconds,
+                        "eta_formatted": eta_formatted,
+                    })
+                
+                # Calculate rate information
+                dichotomies_per_hour = 3600 / avg_time_per_dichotomy if avg_time_per_dichotomy > 0 else 0
+                
+                timing_info.update({
+                    "avg_time_per_run": round(avg_time_per_dichotomy, 2),
+                    "total_time_elapsed": round(total_elapsed, 2),
+                    "runs_per_hour": round(dichotomies_per_hour, 2),
+                    "using_estimate": False
+                })
+                
+            else:
+                # Use estimates if no actual data
+                # Estimate ~5-15 minutes per dichotomy depending on complexity
+                estimated_time_per_dichotomy = 600  # 10 minutes default
+                remaining_dichotomies = total_dichotomies - completed_dichotomies
+                
+                if remaining_dichotomies > 0:
+                    eta_seconds = remaining_dichotomies * estimated_time_per_dichotomy
+                    hours = int(eta_seconds / 3600)
+                    minutes = int((eta_seconds % 3600) / 60)
+                    eta_formatted = f"~{hours}h {minutes}m" if hours > 0 else f"~{minutes}m"
+                    
+                    timing_info.update({
+                        "avg_time_per_run": estimated_time_per_dichotomy,
+                        "eta_seconds": eta_seconds,
+                        "eta_formatted": eta_formatted,
+                        "runs_per_hour": 0.1,  # ~6 per hour estimate
+                        "using_estimate": True
+                    })
+                    
+        except Exception as e:
+            # If timing calculation fails, use basic estimates
+            remaining_dichotomies = total_dichotomies - completed_dichotomies
+            if remaining_dichotomies > 0:
+                timing_info.update({
+                    "avg_time_per_run": 600,  # 10 minutes estimate
+                    "eta_formatted": f"~{remaining_dichotomies * 10}m",
+                    "using_estimate": True
+                })
+        
+        return timing_info
 
     def get_timing_and_eta(self, dataset_paths, stage1_done, stage1_total, stage2_done, stage2_total, stage1_complete):
         """

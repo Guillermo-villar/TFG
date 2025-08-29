@@ -65,12 +65,59 @@ def get_multiclass_best_runner_path(main_dataset_dir, dataset_id):
     return os.path.join(main_dataset_dir, f"multiclass_best_runner_{dataset_id}.json")
 
 def save_multiclass_progress(progress_file, progress_data):
-    """Saves the overall progress of the multiclass experiment."""
+    """Saves the overall progress of the multiclass experiment with enhanced tracking."""
     try:
         progress_data["last_updated"] = datetime.datetime.now().isoformat()
+        
+        # Calculate summary statistics for GUI compatibility
+        dichotomies = progress_data.get("dichotomies", {})
+        completed_count = sum(1 for d in dichotomies.values() if d.get("status") == "completed")
+        in_progress_count = sum(1 for d in dichotomies.values() if d.get("status") == "in_progress")
+        total_count = len(dichotomies)
+        
+        # Find current dichotomy being processed
+        current_dichotomy = None
+        current_dichotomy_index = None
+        for idx, (name, data) in enumerate(dichotomies.items(), 1):
+            if data.get("status") == "in_progress":
+                current_dichotomy = name
+                current_dichotomy_index = idx
+                break
+        
+        # Add summary fields that GUI can use
+        progress_data["summary"] = {
+            "total_dichotomies": total_count,
+            "completed_dichotomies": completed_count,
+            "in_progress_dichotomies": in_progress_count,
+            "remaining_dichotomies": total_count - completed_count,
+            "completion_percentage": (completed_count / total_count * 100) if total_count > 0 else 0,
+            "current_dichotomy": current_dichotomy,
+            "current_dichotomy_index": current_dichotomy_index
+        }
+        
+        # Add timing estimates for GUI ETA calculations
+        if completed_count > 0:
+            # Calculate average time per completed dichotomy
+            completed_times = []
+            for dichotomy_name, dichotomy_data in dichotomies.items():
+                if dichotomy_data.get("status") == "completed" and "completion_time" in dichotomy_data:
+                    completed_times.append(dichotomy_data["completion_time"])
+            
+            if completed_times:
+                avg_time_per_dichotomy = sum(completed_times) / len(completed_times)
+                remaining_dichotomies = total_count - completed_count
+                estimated_remaining_time = remaining_dichotomies * avg_time_per_dichotomy
+                
+                progress_data["timing"] = {
+                    "avg_time_per_dichotomy": avg_time_per_dichotomy,
+                    "total_time_elapsed": sum(completed_times),
+                    "estimated_remaining_time": estimated_remaining_time
+                }
+        
         with open(progress_file, 'w') as f:
             json.dump(progress_data, f, indent=2)
         logger.info(f"Multiclass progress saved to {progress_file}")
+        logger.info(f"Progress summary: {completed_count}/{total_count} dichotomies completed")
     except Exception as e:
         logger.error(f"Error saving multiclass progress to {progress_file}: {e}")
 
@@ -176,7 +223,11 @@ def main(dichotomy_info, level, study_mode):
             # Mark as in-progress
             progress_data["dichotomies"][dichotomy_name]["status"] = "in_progress"
             progress_data["dichotomies"][dichotomy_name]["output_dir"] = dichotomy_output_dir
+            progress_data["dichotomies"][dichotomy_name]["start_time"] = datetime.datetime.now().isoformat()
             save_multiclass_progress(progress_file, progress_data)
+
+            # Record start time for timing calculations
+            dichotomy_start_time = datetime.datetime.now()
 
             # Run the single-dichotomy experiment, passing the dedicated output directory
             # This requires run_test.main to be modified to accept 'output_dir'
@@ -186,9 +237,15 @@ def main(dichotomy_info, level, study_mode):
                 output_dir=dichotomy_output_dir
             )
 
-            # Mark as completed
+            # Calculate completion time
+            dichotomy_end_time = datetime.datetime.now()
+            completion_time_seconds = (dichotomy_end_time - dichotomy_start_time).total_seconds()
+
+            # Mark as completed with timing information
             progress_data["dichotomies"][dichotomy_name]["status"] = "completed"
-            logger.info(f"Successfully completed experiment for dichotomy {dichotomy_name}")
+            progress_data["dichotomies"][dichotomy_name]["end_time"] = dichotomy_end_time.isoformat()
+            progress_data["dichotomies"][dichotomy_name]["completion_time"] = completion_time_seconds
+            logger.info(f"Successfully completed experiment for dichotomy {dichotomy_name} in {completion_time_seconds:.1f} seconds")
 
             # Update the overall best runner if this one is better
             if best_runner_from_dichotomy and best_runner_from_dichotomy.get("best_metric_so_far", -1) > multiclass_best_runner["best_metric_so_far"]:

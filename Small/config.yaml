@@ -122,8 +122,8 @@ capilaridad_levels:
       - 0.15
 data:
   dataset_file: ./datasets/synthetic/synth_dataset.csv
-  dichotomy_id: dichotomy_03
-  external_dataset: /home/ubuntu/Downloads/diabetes_processed.csv
+  dichotomy_id: dichotomy_02
+  external_dataset: /home/ubuntu/Downloads/Code/NeonGenesis/Small/datasets/IDs/real_903626d0/real_903626d0_ova_dichotomy_02.csv
   generate_new: false
   params:
     n_classes: 2
@@ -203,8 +203,8 @@ model:
   n_simulations: 1
   selection_method: conf
 multiclass:
-  enabled: false
-  strategy: null
+  enabled: true
+  strategy: ova
 output:
   log_level: INFO
   results_file: ./datasets/results/test_results.csv

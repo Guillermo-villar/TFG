@@ -1228,6 +1228,58 @@ class MLExperimentGUI:
         except (ValueError, AttributeError):
             stage1_current = stage1_total = stage2_current = stage2_total = 0
         
+        # Check if this is a multiclass experiment (stage2_total = 0 indicates multiclass)
+        is_multiclass = (stage2_total == 0 and stage1_total > 0)
+        
+        if is_multiclass:
+            # Multiclass mode: show single progress bar for dichotomies
+            self.draw_multiclass_progress_bar(canvas_width, canvas_height, stage1_current, stage1_total, stage1_complete)
+        else:
+            # Binary mode: show two-stage progress bar
+            self.draw_binary_progress_bar(canvas_width, canvas_height, stage1_current, stage1_total, 
+                                        stage2_current, stage2_total, stage1_complete, experiment_complete)
+        
+        # Bind resize event to redraw progress bar
+        self.progress_canvas.bind('<Configure>', self._on_canvas_resize)
+
+    def draw_multiclass_progress_bar(self, canvas_width, canvas_height, current, total, complete):
+        """Draw progress bar for multiclass experiments (dichotomies)"""
+        if total == 0:
+            return
+        
+        progress_ratio = current / total
+        
+        # Colors for multiclass
+        if complete:
+            fill_color = "#4CAF50"  # Green when complete
+            outline_color = "#2E7D32"
+        else:
+            fill_color = "#9C27B0"  # Purple for multiclass in progress
+            outline_color = "#6A1B9A"
+        
+        background_color = "#E0E0E0"
+        
+        # Draw background
+        self.progress_canvas.create_rectangle(2, 2, canvas_width-2, canvas_height-2, 
+                                            fill=background_color, outline="#BDBDBD", width=1)
+        
+        # Draw progress fill
+        if progress_ratio > 0:
+            fill_width = (canvas_width - 4) * progress_ratio
+            self.progress_canvas.create_rectangle(2, 2, 2 + fill_width, canvas_height-2,
+                                                fill=fill_color, outline=outline_color, width=2)
+            
+            # Add text if there's enough space
+            if progress_ratio >= 0.25:
+                text_x = fill_width / 2 + 2
+                text = "Dichotomies" if progress_ratio >= 0.4 else "MC"
+                self.progress_canvas.create_text(text_x, canvas_height/2, 
+                                               text=text, fill="white", 
+                                               font=("Arial", 9, "bold"))
+
+    def draw_binary_progress_bar(self, canvas_width, canvas_height, stage1_current, stage1_total,
+                               stage2_current, stage2_total, stage1_complete, experiment_complete):
+        """Draw progress bar for binary experiments (two stages)"""
         # Calculate total work and progress
         total_work = stage1_total + stage2_total
         total_completed = stage1_current + stage2_current
@@ -1292,9 +1344,6 @@ class MLExperimentGUI:
         if stage1_total > 0 and stage2_total > 0:
             self.progress_canvas.create_line(stage1_boundary, 2, stage1_boundary, canvas_height-2,
                                            fill="#757575", width=1)
-        
-        # Bind resize event to redraw progress bar
-        self.progress_canvas.bind('<Configure>', self._on_canvas_resize)
     
     def _on_canvas_resize(self, event):
         """Handle canvas resize by redrawing the progress bar"""
@@ -1617,6 +1666,12 @@ class MLExperimentGUI:
     def show_existing_dataset_popup(self, dataset_status):
         """Show detailed popup for existing dataset with progress tracking"""
         
+        experiment_type = dataset_status.get("experiment_type", "binary")
+        
+        if experiment_type == "multiclass":
+            return self.show_multiclass_dataset_popup(dataset_status)
+        
+        # Standard binary classification popup
         # Create custom dialog window
         dialog = tk.Toplevel(self.root)
         dialog.title(self.texts["dataset_status"])
@@ -1814,6 +1869,207 @@ class MLExperimentGUI:
         dialog.wait_window()
         
         return result.get()
+    
+    def show_multiclass_dataset_popup(self, dataset_status):
+        """Show detailed popup for existing multiclass dataset with progress tracking"""
+        
+        # Create custom dialog window
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Multiclass Dataset Status")
+        dialog.geometry("650x700")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        
+        # Try to set grab, but handle gracefully if it fails
+        try:
+            dialog.grab_set()
+        except tk.TclError:
+            pass
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (650 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (700 // 2)
+        dialog.geometry(f"650x700+{x}+{y}")
+        
+        # Result variable
+        result = tk.BooleanVar(value=False)
+        
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding="20")
+        main_frame.pack(fill='both', expand=True)
+        
+        # Title
+        title_label = ttk.Label(main_frame, text="Existing Multiclass Dataset", 
+                               font=('Arial', 14, 'bold'))
+        title_label.pack(pady=(0, 15))
+        
+        # Dataset info
+        info_frame = ttk.LabelFrame(main_frame, text="Dataset Status", padding="10")
+        info_frame.pack(fill='x', pady=(0, 15))
+        
+        ttk.Label(info_frame, text=f"Dataset ID: {dataset_status['dataset_id']}", 
+                 font=('Arial', 10, 'bold')).pack(anchor='w')
+        ttk.Label(info_frame, text=f"Experiment Type: Multiclass Classification", 
+                 font=('Arial', 10, 'bold'), foreground='purple').pack(anchor='w')
+        ttk.Label(info_frame, text=f"Last Updated: {dataset_status['last_updated']}", 
+                 font=('Arial', 9)).pack(anchor='w')
+        
+        # Multiclass information
+        multiclass_info = dataset_status.get("multiclass_info", {})
+        multiclass_frame = ttk.LabelFrame(main_frame, text="Multiclass Configuration", padding="10")
+        multiclass_frame.pack(fill='x', pady=(0, 15))
+        
+        strategy = multiclass_info.get("strategy", "UNKNOWN")
+        n_classes = multiclass_info.get("n_classes", "?")
+        class_names = multiclass_info.get("class_names", [])
+        
+        ttk.Label(multiclass_frame, text=f"Strategy: {strategy}", 
+                 font=('Arial', 10, 'bold')).pack(anchor='w')
+        ttk.Label(multiclass_frame, text=f"Number of Classes: {n_classes}", 
+                 font=('Arial', 10)).pack(anchor='w')
+        
+        if class_names:
+            classes_text = ", ".join(map(str, class_names))
+            if len(classes_text) > 60:
+                classes_text = classes_text[:60] + "..."
+            ttk.Label(multiclass_frame, text=f"Classes: {classes_text}", 
+                     font=('Arial', 9)).pack(anchor='w')
+        
+        # Progress info
+        progress_frame = ttk.LabelFrame(main_frame, text="Dichotomy Progress", padding="10")
+        progress_frame.pack(fill='x', pady=(0, 15))
+        
+        completed_dichotomies = multiclass_info.get("completed_dichotomies", 0)
+        total_dichotomies = multiclass_info.get("total_dichotomies", 0)
+        in_progress_dichotomies = multiclass_info.get("in_progress_dichotomies", 0)
+        
+        # Overall progress
+        overall_frame = ttk.Frame(progress_frame)
+        overall_frame.pack(fill='x', pady=(0, 10))
+        
+        overall_status = dataset_status.get("overall_status", "unknown")
+        if overall_status == "complete":
+            status_text = "All dichotomies completed"
+            status_color = "green"
+        elif in_progress_dichotomies > 0:
+            status_text = "Experiment in progress"
+            status_color = "blue"
+        else:
+            status_text = "Ready to continue"
+            status_color = "orange"
+        
+        ttk.Label(overall_frame, text=f"Status: {status_text}", 
+                 font=('Arial', 10, 'bold'), foreground=status_color).pack(anchor='w')
+        ttk.Label(overall_frame, text=f"Dichotomies: {completed_dichotomies}/{total_dichotomies} completed", 
+                 font=('Arial', 9)).pack(anchor='w', padx=(20, 0))
+        
+        if in_progress_dichotomies > 0:
+            ttk.Label(overall_frame, text=f"In Progress: {in_progress_dichotomies} dichotomies", 
+                     font=('Arial', 9)).pack(anchor='w', padx=(20, 0))
+        
+        # ETA information
+        eta_formatted = dataset_status.get("eta_formatted")
+        if eta_formatted and eta_formatted != "Unknown":
+            using_estimate = dataset_status.get("using_estimate", True)
+            eta_text = f"ETA: {eta_formatted}"
+            if using_estimate:
+                eta_text += " (estimated)"
+            ttk.Label(overall_frame, text=eta_text, font=('Arial', 9), foreground='gray').pack(anchor='w', padx=(20, 0))
+        
+        # Best result info
+        best_metric = dataset_status.get("best_metric_so_far")
+        if best_metric:
+            best_frame = ttk.LabelFrame(main_frame, text="Best Result So Far", padding="10")
+            best_frame.pack(fill='x', pady=(0, 15))
+            
+            ttk.Label(best_frame, text=f"Best Metric: {best_metric:.4f}", 
+                     font=('Arial', 10, 'bold')).pack(anchor='w')
+            
+            best_runner = dataset_status.get("best_runner")
+            if best_runner:
+                source_dichotomy = getattr(best_runner, 'source_dichotomy', 'Unknown')
+                ttk.Label(best_frame, text=f"From dichotomy: {source_dichotomy}", 
+                         font=('Arial', 9)).pack(anchor='w')
+        
+        # Resume message
+        if overall_status == "complete":
+            message = "All dichotomies have been completed for this multiclass dataset."
+        else:
+            remaining = total_dichotomies - completed_dichotomies
+            message = f"This multiclass experiment will continue processing the remaining {remaining} dichotomies."
+        
+        message_label = ttk.Label(main_frame, text=message, font=('Arial', 10), 
+                                 wraplength=600, justify='center')
+        message_label.pack(pady=15)
+        
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x', pady=(15, 0))
+        
+        def on_continue():
+            result.set(True)
+            dialog.destroy()
+        
+        def on_cancel():
+            result.set(False)
+            dialog.destroy()
+        
+        def on_delete_progress():
+            # Close current dialog first
+            dialog.destroy()
+            
+            # Show deletion confirmation and execute if confirmed
+            data_source = self.data_source_var.get()
+            csv_path = self.get_current_csv_path() if data_source == "real" else None
+            
+            self.delete_dataset_progress(data_source, csv_path, dataset_status)
+            
+            # Set result to False so the experiment doesn't start automatically
+            result.set(False)
+        
+        # Delete progress button (left side) - Red with trash icon
+        delete_button = tk.Button(button_frame, 
+                                 text="🗑 Delete Progress", 
+                                 command=on_delete_progress,
+                                 bg="#e53e3e",  # Red
+                                 fg="white",
+                                 font=("Arial", 9, "bold"),
+                                 relief="raised",
+                                 padx=10,
+                                 pady=5,
+                                 cursor="hand2")
+        delete_button.pack(side='left')
+        
+        # Continue and Cancel buttons (right side)
+        continue_button = tk.Button(button_frame, 
+                                   text="✓ Continue", 
+                                   command=on_continue,
+                                   bg="#4CAF50",  # Green
+                                   fg="white",
+                                   font=("Arial", 9, "bold"),
+                                   relief="raised",
+                                   padx=15,
+                                   pady=5,
+                                   cursor="hand2")
+        continue_button.pack(side='right', padx=(10, 0))
+        
+        cancel_button = tk.Button(button_frame, 
+                                 text="✗ Cancel", 
+                                 command=on_cancel,
+                                 bg="#9e9e9e",  # Gray
+                                 fg="white",
+                                 font=("Arial", 9),
+                                 relief="raised",
+                                 padx=15,
+                                 pady=5,
+                                 cursor="hand2")
+        cancel_button.pack(side='right')
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        return result.get()
 
     def delete_dataset_progress(self, data_source, csv_path, dataset_status):
         """Handle dataset progress deletion with confirmation"""
@@ -1895,9 +2151,14 @@ class MLExperimentGUI:
                 self.current_progress_info = progress_info
                 self.update_progress_widgets(progress_info)
             else:
-                # If no existing progress, create a basic progress display
+                # If no existing progress for current dataset, check for any running experiments
                 if self.is_running:
-                    self.progress_detail_var.set("Experiment running...")
+                    running_info = self.experiment_runner.get_any_running_experiment_status()
+                    if running_info:
+                        self.current_progress_info = running_info
+                        self.update_progress_widgets(running_info)
+                    else:
+                        self.progress_detail_var.set("Experiment running...")
             
         except Exception as e:
             # If progress update fails, show basic running info
@@ -1916,6 +2177,14 @@ class MLExperimentGUI:
     def update_progress_widgets(self, progress_info):
         """Update progress bar and detail text based on progress information"""
         try:
+            # Check if this is a multiclass experiment
+            experiment_type = progress_info.get("experiment_type", "binary")
+            
+            if experiment_type == "multiclass":
+                self.update_multiclass_progress_widgets(progress_info)
+                return
+            
+            # Standard binary classification progress handling
             # Determine current stage and progress
             stage1_complete = progress_info.get("stage1_completed", False)
             current_stage = progress_info.get("current_stage", 1)
@@ -1990,6 +2259,86 @@ class MLExperimentGUI:
         except Exception as e:
             # If widget update fails, show basic info
             self.progress_detail_var.set("Experiment running...")
+            self.update_custom_progress_bar("0/0", "0/0", False, False)
+
+    def update_multiclass_progress_widgets(self, progress_info):
+        """Update progress widgets specifically for multiclass experiments"""
+        try:
+            multiclass_info = progress_info.get("multiclass_info", {})
+            
+            # Extract multiclass-specific progress
+            completed_dichotomies = multiclass_info.get("completed_dichotomies", 0)
+            total_dichotomies = multiclass_info.get("total_dichotomies", 0)
+            strategy = multiclass_info.get("strategy", "UNKNOWN")
+            n_classes = multiclass_info.get("n_classes", "?")
+            
+            # Create progress string that matches expected format
+            dichotomy_progress = f"{completed_dichotomies}/{total_dichotomies}"
+            
+            # For multiclass, we treat dichotomies as "Stage 1" and show no Stage 2
+            stage1_complete = completed_dichotomies >= total_dichotomies
+            
+            # Update custom progress bar - use dichotomy progress as Stage 1, empty Stage 2
+            self.update_custom_progress_bar(dichotomy_progress, "0/0", stage1_complete, stage1_complete)
+            
+            # Build detailed status text for multiclass
+            detail_parts = []
+            
+            # Add strategy and class information
+            detail_parts.append(f"{strategy} • {n_classes} classes")
+            
+            # Add ETA timing information
+            eta_formatted = progress_info.get("eta_formatted")
+            if eta_formatted and eta_formatted != "Unknown":
+                using_estimate = progress_info.get("using_estimate", False)
+                if using_estimate:
+                    detail_parts.append(f"ETA: ~{eta_formatted} (estimated)")
+                else:
+                    detail_parts.append(f"ETA: {eta_formatted}")
+            
+            # Add timing information for dichotomies
+            avg_time = progress_info.get("avg_time_per_run", 0)
+            if avg_time > 0:
+                using_estimate = progress_info.get("using_estimate", False)
+                if avg_time > 3600:  # More than 1 hour
+                    hours = int(avg_time / 3600)
+                    minutes = int((avg_time % 3600) / 60)
+                    time_str = f"{hours}h{minutes}m" if hours > 0 else f"{minutes}m"
+                else:
+                    minutes = int(avg_time / 60)
+                    time_str = f"{minutes}m" if minutes > 0 else f"{avg_time:.0f}s"
+                
+                if using_estimate:
+                    detail_parts.append(f"Est: {time_str}/dichotomy")
+                else:
+                    detail_parts.append(f"Avg: {time_str}/dichotomy")
+            
+            # Add best metric if available
+            best_metric = progress_info.get("best_metric_so_far")
+            if best_metric and best_metric != "N/A":
+                detail_parts.append(f"Best: {best_metric:.3f}")
+            
+            # Update the detail text
+            detail_text = " • ".join(detail_parts) if detail_parts else "Multiclass experiment running..."
+            self.progress_detail_var.set(detail_text)
+            
+            # Update main status to show multiclass progress
+            if self.is_running:
+                if stage1_complete:
+                    status_text = f"Multiclass Complete ({dichotomy_progress} dichotomies)"
+                else:
+                    # Check if there's a current dichotomy being processed
+                    current_dichotomy_index = multiclass_info.get("current_dichotomy_index")
+                    if current_dichotomy_index:
+                        status_text = f"Processing Dichotomy {current_dichotomy_index}/{total_dichotomies} • {completed_dichotomies} completed"
+                    else:
+                        status_text = f"Running Multiclass ({dichotomy_progress} dichotomies)"
+                
+                self.status_var.set(status_text)
+        
+        except Exception as e:
+            # If multiclass widget update fails, show basic info
+            self.progress_detail_var.set("Multiclass experiment running...")
             self.update_custom_progress_bar("0/0", "0/0", False, False)
 
     def experiment_completed(self, message):
