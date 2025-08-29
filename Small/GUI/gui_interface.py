@@ -707,17 +707,28 @@ class MLExperimentGUI:
                     # MULTICLASS FLOW: Show multiclass-specific dialog
                     main_candidate = multiclass_candidates[0]
                     
+                    # Calculate number of dichotomies based on strategy
+                    n_classes = main_candidate['n_classes']
+                    strategy = self.multiclass_strategy
+                    if strategy == 'ovo':
+                        num_dichotomies = n_classes * (n_classes - 1) // 2
+                    elif strategy == 'ova':
+                        num_dichotomies = n_classes
+                    else:
+                        num_dichotomies = 'a number of' # Fallback text
+
                     # Show multiclass preprocessing dialog
                     proceed = messagebox.askyesno(
-                        "Multiclass Dataset Detected", 
-                        f"Multiclass dataset detected!\n\n"
-                        f"Original file: {os.path.basename(filepath)}\n"
-                        f"Classes detected: {main_candidate['n_classes']} ({', '.join(map(str, main_candidate.get('class_names', [])))})\n"
-                        f"Target column: {main_candidate['column']}\n\n"
-                        f"Strategy: {self.multiclass_strategy.upper() if self.multiclass_strategy else 'Not selected'}\n\n"
-                        f"This will create {main_candidate['n_classes']} dichotomies using {self.multiclass_strategy.upper() if self.multiclass_strategy else 'selected'} decomposition,\n"
-                        f"then process each dichotomy for binary classification.\n\n"
-                        f"Do you want to proceed with multiclass processing?"
+                        self.texts["multiclass_dataset_detected_title"], 
+                        self.texts["multiclass_dataset_detected_message"].format(
+                            filename=os.path.basename(filepath),
+                            n_classes=main_candidate['n_classes'],
+                            class_names=', '.join(map(str, main_candidate.get('class_names', []))),
+                            column=main_candidate['column'],
+                            strategy=self.multiclass_strategy.upper() if self.multiclass_strategy else self.texts.get('not_selected', 'Not selected'),
+                            num_dichotomies=num_dichotomies,
+                            strategy_name=self.multiclass_strategy.upper() if self.multiclass_strategy else self.texts.get('selected', 'selected')
+                        )
                     )
                     
                     if proceed:
@@ -738,20 +749,20 @@ class MLExperimentGUI:
                             self.add_log_message(f"Successfully created {n_dichotomies} dichotomies")
                             
                             # Show summary of dichotomies
-                            summary_text = f"Multiclass decomposition completed!\n\n"
-                            summary_text += f"Strategy: {dichotomy_result['strategy']}\n"
-                            summary_text += f"Classes: {dichotomy_result['n_classes']} ({', '.join(map(str, dichotomy_result['class_names']))})\n"
-                            summary_text += f"Dichotomies created: {n_dichotomies}\n\n"
+                            summary_text = self.texts["multiclass_decomposition_complete_message"].format(
+                                strategy=dichotomy_result['strategy'],
+                                n_classes=dichotomy_result['n_classes'],
+                                class_names=', '.join(map(str, dichotomy_result['class_names'])),
+                                n_dichotomies=n_dichotomies,
+                                dichotomy_details="\n".join([
+                                    f"Dichotomy {dich['index']}: {dich['n_instances']} instances\n"
+                                    f"  Positive: {', '.join(dich['positive_classes'])}\n"
+                                    f"  Negative: {', '.join(dich['negative_classes'])}"
+                                    for i, dich in enumerate(dichotomy_result['dichotomies'][:3])
+                                ]) + (f"\n... and {n_dichotomies - 3} more dichotomies" if n_dichotomies > 3 else "")
+                            )
                             
-                            for i, dich in enumerate(dichotomy_result['dichotomies'][:3]):  # Show first 3
-                                summary_text += f"Dichotomy {dich['index']}: {dich['n_instances']} instances\n"
-                                summary_text += f"  Positive: {', '.join(dich['positive_classes'])}\n"
-                                summary_text += f"  Negative: {', '.join(dich['negative_classes'])}\n"
-                            
-                            if n_dichotomies > 3:
-                                summary_text += f"... and {n_dichotomies - 3} more dichotomies"
-                            
-                            messagebox.showinfo("Multiclass Decomposition Complete", summary_text)
+                            messagebox.showinfo(self.texts["multiclass_decomposition_complete_title"], summary_text)
                             
                             # Store dichotomy information for later use
                             self.multiclass_dichotomies = dichotomy_result
@@ -814,18 +825,21 @@ class MLExperimentGUI:
                                 
                                 # Show processing summary
                                 successful_count = sum(1 for d in processed_dichotomies if d['success'])
-                                messagebox.showinfo("Dichotomy Processing Complete", 
-                                                  f"Processed {successful_count}/{n_dichotomies} dichotomies successfully.\n\n"
-                                                  f"Ready to run multiclass experiments!")
+                                messagebox.showinfo(self.texts["dichotomy_processing_complete_title"], 
+                                                  self.texts["dichotomy_processing_complete_message"].format(
+                                                      successful=successful_count, 
+                                                      total=n_dichotomies
+                                                  ))
                             else:
                                 self.add_log_message("No dichotomies could be processed")
-                                messagebox.showerror("Processing Failed", "No dichotomies could be processed successfully.")
+                                messagebox.showerror(self.texts["processing_failed_title"], 
+                                                   self.texts["processing_failed_message"])
                         else:
                             # Dichotomy creation failed
                             error_msg = dichotomy_result.get('error', 'Unknown error in multiclass decomposition')
                             self.add_log_message(f"Error creating dichotomies: {error_msg}")
-                            messagebox.showerror("Multiclass Decomposition Failed", 
-                                               f"Failed to create multiclass dichotomies:\n{error_msg}")
+                            messagebox.showerror(self.texts["multiclass_decomposition_failed_title"], 
+                                               self.texts["multiclass_decomposition_failed_message"].format(error=error_msg))
                             return
                     else:
                         # User declined multiclass processing
@@ -842,15 +856,15 @@ class MLExperimentGUI:
                     
                     # Show standard preprocessing dialog
                     proceed = messagebox.askyesno(
-                        "CSV Preprocessing", 
-                        f"The selected CSV file will be analyzed and preprocessed if needed.\n\n"
-                        f"Original file: {os.path.basename(filepath)}\n"
-                        f"Processed file: {os.path.basename(processed_path)}\n\n"
-                        f"Detected columns: {len(analysis['columns'])}\n"
-                        f"Binary columns found: {len(analysis['binary_columns'])}\n"
-                        f"Text columns found: {len(analysis.get('text_columns', []))}\n"
-                        f"Categorical columns found: {len(analysis.get('categorical_columns', []))}\n\n"
-                        f"Do you want to proceed with preprocessing?"
+                        self.texts["csv_preprocessing_title"], 
+                        self.texts["csv_preprocessing_message"].format(
+                            original_file=os.path.basename(filepath),
+                            processed_file=os.path.basename(processed_path),
+                            num_columns=len(analysis['columns']),
+                            binary_columns=len(analysis['binary_columns']),
+                            text_columns=len(analysis.get('text_columns', [])),
+                            categorical_columns=len(analysis.get('categorical_columns', []))
+                        )
                     )
                     
                     if proceed:
@@ -869,13 +883,13 @@ class MLExperimentGUI:
                             # Show preprocessing summary
                             log_summary = "\n".join(result['processing_log'])
                             if log_summary:
-                                messagebox.showinfo("Preprocessing Complete", 
-                                                  f"Preprocessing completed successfully!\n\nSummary:\n{log_summary}")
+                                messagebox.showinfo(self.texts["preprocessing_complete_title"], 
+                                                  self.texts["preprocessing_complete_message"].format(summary=log_summary))
                         else:
                             # Preprocessing failed
                             error_msg = result.get('error', 'Unknown preprocessing error')
-                            messagebox.showerror("Preprocessing Failed", 
-                                               f"Preprocessing failed: {error_msg}\n\nUsing original file.")
+                            messagebox.showerror(self.texts["preprocessing_failed_title"], 
+                                               self.texts["preprocessing_failed_message"].format(error=error_msg))
                             # Set original file as the user's selected file
                             self.user_csv_path = filepath
                             self.csv_path_var.set(filepath)  # Show full path for manual files
@@ -898,8 +912,8 @@ class MLExperimentGUI:
                 else:
                     error_msg = f"Preprocessing error: {error_details}"
                     
-                messagebox.showerror("Preprocessing Error", 
-                                   f"Error during preprocessing:\n{error_msg}\n\nUsing original file.")
+                messagebox.showerror(self.texts["preprocessing_error_title"], 
+                                   self.texts["preprocessing_error_message"].format(error=error_msg))
                 # Set original file as the user's selected file
                 self.user_csv_path = filepath
                 self.csv_path_var.set(filepath)  # Show full path for manual files
@@ -919,15 +933,13 @@ class MLExperimentGUI:
         str or None : Selected strategy ('ova', 'ovo') or None if cancelled
         """
         # First, confirm with user that this is indeed a multiclass dataset
-        confirm_message = (
-            f"Multiclass Dataset Detected!\n\n"
-            f"Column '{candidate['column']}' appears to be a multiclass target with {candidate['n_classes']} classes:\n"
-            f"{', '.join(map(str, candidate['class_names'][:5]))}"
-            f"{'...' if len(candidate['class_names']) > 5 else ''}\n\n"
-            f"Would you like to enable multiclass classification mode?"
+        confirm_message = self.texts["multiclass_confirmation_message"].format(
+            column=candidate['column'],
+            n_classes=candidate['n_classes'],
+            class_names=', '.join(map(str, candidate['class_names'][:5])) + ('...' if len(candidate['class_names']) > 5 else '')
         )
         
-        confirmed = messagebox.askyesno("Multiclass Detection", confirm_message)
+        confirmed = messagebox.askyesno(self.texts["multiclass_confirmation_title"], confirm_message)
         
         if not confirmed:
             return None
@@ -945,7 +957,7 @@ class MLExperimentGUI:
         """
         # Create custom dialog
         dialog = tk.Toplevel(self.root)
-        dialog.title("Select Decomposition Strategy")
+        dialog.title(self.texts["decomposition_strategy_title"])
         dialog.geometry("500x450")
         dialog.transient(self.root)
         
@@ -966,7 +978,7 @@ class MLExperimentGUI:
         
         # Main title
         title_label = tk.Label(dialog, 
-                              text="Choose Multiclass Decomposition Strategy",
+                              text=self.texts["decomposition_strategy_header"],
                               font=('Arial', 14, 'bold'))
         title_label.pack(pady=20)
         
@@ -974,33 +986,27 @@ class MLExperimentGUI:
         strategy_var = tk.StringVar(value="ova")
         
         # Create frames for each strategy
-        ova_frame = ttk.LabelFrame(dialog, text="One-vs-All (OVA)", padding=10)
+        ova_frame = ttk.LabelFrame(dialog, text=self.texts["ova_strategy_title"], padding=10)
         ova_frame.pack(fill='x', padx=20, pady=10)
         
-        ova_radio = ttk.Radiobutton(ova_frame, text="Select OVA Strategy", 
+        ova_radio = ttk.Radiobutton(ova_frame, text=self.texts["ova_strategy_select"], 
                                    variable=strategy_var, value="ova")
         ova_radio.pack(anchor='w')
         
         ova_desc = tk.Label(ova_frame, 
-                           text="• Creates N binary classifiers (one per class)\n"
-                                "• Each classifier separates one class vs all others\n"
-                                "• Faster training, good for balanced datasets\n"
-                                "• Recommended for beginners",
+                           text=self.texts["ova_strategy_description"],
                            justify='left', font=('Arial', 9))
         ova_desc.pack(anchor='w', pady=(5, 0))
         
-        ovo_frame = ttk.LabelFrame(dialog, text="One-vs-One (OVO)", padding=10)
+        ovo_frame = ttk.LabelFrame(dialog, text=self.texts["ovo_strategy_title"], padding=10)
         ovo_frame.pack(fill='x', padx=20, pady=10)
         
-        ovo_radio = ttk.Radiobutton(ovo_frame, text="Select OVO Strategy", 
+        ovo_radio = ttk.Radiobutton(ovo_frame, text=self.texts["ovo_strategy_select"], 
                                    variable=strategy_var, value="ovo")
         ovo_radio.pack(anchor='w')
         
         ovo_desc = tk.Label(ovo_frame, 
-                           text="• Creates N×(N-1)/2 binary classifiers (one per class pair)\n"
-                                "• Each classifier separates two specific classes\n"
-                                "• More training time, better for imbalanced datasets\n"
-                                "• More robust but computationally intensive",
+                           text=self.texts["ovo_strategy_description"],
                            justify='left', font=('Arial', 9))
         ovo_desc.pack(anchor='w', pady=(5, 0))
         
@@ -1016,8 +1022,8 @@ class MLExperimentGUI:
             result['strategy'] = None
             dialog.destroy()
         
-        ttk.Button(button_frame, text="Confirm", command=confirm).pack(side='left', padx=10)
-        ttk.Button(button_frame, text="Cancel", command=cancel).pack(side='left', padx=10)
+        ttk.Button(button_frame, text=self.texts["confirm"], command=confirm).pack(side='left', padx=10)
+        ttk.Button(button_frame, text=self.texts["cancel"], command=cancel).pack(side='left', padx=10)
         
         # Wait for dialog to close
         dialog.wait_window()
@@ -1039,8 +1045,8 @@ class MLExperimentGUI:
     def change_multiclass_strategy(self):
         """Allow user to change the multiclass decomposition strategy"""
         if not self.multiclass_detected:
-            messagebox.showwarning("No Multiclass Dataset", 
-                                 "Multiclass strategy can only be changed when a multiclass dataset is detected.")
+            messagebox.showwarning(self.texts["warning"], 
+                                 self.texts["multiclass_strategy_change_warning"])
             return
         
         # Show the strategy selection popup
@@ -1058,8 +1064,8 @@ class MLExperimentGUI:
             self.add_log_message(f"Multiclass strategy changed from {old_strategy.upper()} to {new_strategy.upper()}")
             
             # Show confirmation
-            messagebox.showinfo("Strategy Changed", 
-                              f"Multiclass decomposition strategy changed to {new_strategy.upper()}")
+            messagebox.showinfo(self.texts["multiclass_strategy_changed_title"], 
+                              self.texts["multiclass_strategy_changed_message"].format(strategy=new_strategy.upper()))
         elif new_strategy == self.multiclass_strategy:
             # User selected the same strategy
             self.add_log_message(f"Multiclass strategy remains {new_strategy.upper()}")
@@ -1436,7 +1442,7 @@ class MLExperimentGUI:
         if data_source == "real" and not csv_path:
             messagebox.showwarning(
                 self.texts["warning"], 
-                "Please select a CSV file using the dropdown or 'Select File' button before running with real data."
+                self.texts["csv_file_validation_warning"]
             )
             return
         
@@ -1647,7 +1653,7 @@ class MLExperimentGUI:
         continue_button.pack(side='right', padx=(10, 0))
         
         cancel_button = tk.Button(button_frame, 
-                                 text="✗ Cancel", 
+                                 text=f"✗ {self.texts['cancel']}", 
                                  command=on_cancel,
                                  bg="#9e9e9e",  # Gray
                                  fg="white",
@@ -1854,7 +1860,7 @@ class MLExperimentGUI:
         continue_button.pack(side='right', padx=(10, 0))
         
         cancel_button = tk.Button(button_frame, 
-                                 text="✗ Cancel", 
+                                 text=f"✗ {self.texts['cancel']}", 
                                  command=on_cancel,
                                  bg="#9e9e9e",  # Gray
                                  fg="white",
@@ -1900,24 +1906,24 @@ class MLExperimentGUI:
         main_frame.pack(fill='both', expand=True)
         
         # Title
-        title_label = ttk.Label(main_frame, text="Existing Multiclass Dataset", 
+        title_label = ttk.Label(main_frame, text=self.texts["existing_multiclass_dataset_title"], 
                                font=('Arial', 14, 'bold'))
         title_label.pack(pady=(0, 15))
         
         # Dataset info
-        info_frame = ttk.LabelFrame(main_frame, text="Dataset Status", padding="10")
+        info_frame = ttk.LabelFrame(main_frame, text=self.texts["dataset_status"], padding="10")
         info_frame.pack(fill='x', pady=(0, 15))
         
         ttk.Label(info_frame, text=f"Dataset ID: {dataset_status['dataset_id']}", 
                  font=('Arial', 10, 'bold')).pack(anchor='w')
-        ttk.Label(info_frame, text=f"Experiment Type: Multiclass Classification", 
+        ttk.Label(info_frame, text="Experiment Type: Multiclass Classification", 
                  font=('Arial', 10, 'bold'), foreground='purple').pack(anchor='w')
         ttk.Label(info_frame, text=f"Last Updated: {dataset_status['last_updated']}", 
                  font=('Arial', 9)).pack(anchor='w')
         
         # Multiclass information
         multiclass_info = dataset_status.get("multiclass_info", {})
-        multiclass_frame = ttk.LabelFrame(main_frame, text="Multiclass Configuration", padding="10")
+        multiclass_frame = ttk.LabelFrame(main_frame, text=self.texts["multiclass_configuration_title"], padding="10")
         multiclass_frame.pack(fill='x', pady=(0, 15))
         
         strategy = multiclass_info.get("strategy", "UNKNOWN")
@@ -1937,7 +1943,7 @@ class MLExperimentGUI:
                      font=('Arial', 9)).pack(anchor='w')
         
         # Progress info
-        progress_frame = ttk.LabelFrame(main_frame, text="Dichotomy Progress", padding="10")
+        progress_frame = ttk.LabelFrame(main_frame, text=self.texts["dichotomy_progress_title"], padding="10")
         progress_frame.pack(fill='x', pady=(0, 15))
         
         completed_dichotomies = multiclass_info.get("completed_dichotomies", 0)
@@ -1950,54 +1956,57 @@ class MLExperimentGUI:
         
         overall_status = dataset_status.get("overall_status", "unknown")
         if overall_status == "complete":
-            status_text = "All dichotomies completed"
+            status_text = self.texts["multiclass_status_complete"]
             status_color = "green"
         elif in_progress_dichotomies > 0:
-            status_text = "Experiment in progress"
+            status_text = self.texts["multiclass_status_in_progress"]
             status_color = "blue"
         else:
-            status_text = "Ready to continue"
+            status_text = self.texts["multiclass_status_ready"]
             status_color = "orange"
         
         ttk.Label(overall_frame, text=f"Status: {status_text}", 
                  font=('Arial', 10, 'bold'), foreground=status_color).pack(anchor='w')
-        ttk.Label(overall_frame, text=f"Dichotomies: {completed_dichotomies}/{total_dichotomies} completed", 
+        ttk.Label(overall_frame, text=self.texts["multiclass_dichotomies_label"].format(
+                     completed=completed_dichotomies, total=total_dichotomies), 
                  font=('Arial', 9)).pack(anchor='w', padx=(20, 0))
         
         if in_progress_dichotomies > 0:
-            ttk.Label(overall_frame, text=f"In Progress: {in_progress_dichotomies} dichotomies", 
+            ttk.Label(overall_frame, text=self.texts["multiclass_in_progress_label"].format(
+                         in_progress=in_progress_dichotomies), 
                      font=('Arial', 9)).pack(anchor='w', padx=(20, 0))
         
         # ETA information
         eta_formatted = dataset_status.get("eta_formatted")
         if eta_formatted and eta_formatted != "Unknown":
             using_estimate = dataset_status.get("using_estimate", True)
-            eta_text = f"ETA: {eta_formatted}"
             if using_estimate:
-                eta_text += " (estimated)"
+                eta_text = self.texts["multiclass_eta_estimated"].format(eta=eta_formatted)
+            else:
+                eta_text = self.texts["multiclass_eta_label"].format(eta=eta_formatted)
             ttk.Label(overall_frame, text=eta_text, font=('Arial', 9), foreground='gray').pack(anchor='w', padx=(20, 0))
         
         # Best result info
         best_metric = dataset_status.get("best_metric_so_far")
         if best_metric:
-            best_frame = ttk.LabelFrame(main_frame, text="Best Result So Far", padding="10")
+            best_frame = ttk.LabelFrame(main_frame, text=self.texts["best_result_so_far_title"], padding="10")
             best_frame.pack(fill='x', pady=(0, 15))
             
-            ttk.Label(best_frame, text=f"Best Metric: {best_metric:.4f}", 
+            ttk.Label(best_frame, text=self.texts["best_metric_label"].format(metric=best_metric), 
                      font=('Arial', 10, 'bold')).pack(anchor='w')
             
             best_runner = dataset_status.get("best_runner")
             if best_runner:
                 source_dichotomy = getattr(best_runner, 'source_dichotomy', 'Unknown')
-                ttk.Label(best_frame, text=f"From dichotomy: {source_dichotomy}", 
+                ttk.Label(best_frame, text=self.texts["from_dichotomy_label"].format(dichotomy=source_dichotomy), 
                          font=('Arial', 9)).pack(anchor='w')
         
         # Resume message
         if overall_status == "complete":
-            message = "All dichotomies have been completed for this multiclass dataset."
+            message = self.texts["multiclass_complete_message"]
         else:
             remaining = total_dichotomies - completed_dichotomies
-            message = f"This multiclass experiment will continue processing the remaining {remaining} dichotomies."
+            message = self.texts["multiclass_continue_message"].format(remaining=remaining)
         
         message_label = ttk.Label(main_frame, text=message, font=('Arial', 10), 
                                  wraplength=600, justify='center')
@@ -2030,7 +2039,7 @@ class MLExperimentGUI:
         
         # Delete progress button (left side) - Red with trash icon
         delete_button = tk.Button(button_frame, 
-                                 text="🗑 Delete Progress", 
+                                 text=f"🗑 {self.texts['delete_progress']}", 
                                  command=on_delete_progress,
                                  bg="#e53e3e",  # Red
                                  fg="white",
@@ -2043,7 +2052,7 @@ class MLExperimentGUI:
         
         # Continue and Cancel buttons (right side)
         continue_button = tk.Button(button_frame, 
-                                   text="✓ Continue", 
+                                   text=f"✓ {self.texts['continue']}", 
                                    command=on_continue,
                                    bg="#4CAF50",  # Green
                                    fg="white",
@@ -2055,7 +2064,7 @@ class MLExperimentGUI:
         continue_button.pack(side='right', padx=(10, 0))
         
         cancel_button = tk.Button(button_frame, 
-                                 text="✗ Cancel", 
+                                 text=f"✗ {self.texts['cancel']}", 
                                  command=on_cancel,
                                  bg="#9e9e9e",  # Gray
                                  fg="white",
@@ -2427,7 +2436,7 @@ class MLExperimentGUI:
             if result:
                 # Create a simple dialog to show config
                 config_window = tk.Toplevel(self.root)
-                config_window.title(self.texts["config_preview"])
+                config_window.title(self.texts["config_window_title"])
                 config_window.geometry("500x400")
                 
                 text_widget = scrolledtext.ScrolledText(config_window, wrap=tk.WORD)
@@ -2443,7 +2452,7 @@ class MLExperimentGUI:
     def on_closing(self):
         """Handle window closing"""
         if self.is_running:
-            if messagebox.askokcancel("Quit", self.texts["quit_confirm"]):
+            if messagebox.askokcancel(self.texts["quit_dialog_title"], self.texts["quit_confirm"]):
                 self.stop_experiment()
                 self.root.destroy()
         else:

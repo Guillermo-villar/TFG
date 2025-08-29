@@ -122,8 +122,8 @@ capilaridad_levels:
       - 0.15
 data:
   dataset_file: ./datasets/synthetic/synth_dataset.csv
-  dichotomy_id: dichotomy_02
-  external_dataset: /home/ubuntu/Downloads/Code/NeonGenesis/Small/datasets/IDs/real_903626d0/real_903626d0_ova_dichotomy_02.csv
+  dichotomy_id: dichotomy_06
+  external_dataset: /home/ubuntu/Downloads/Code/NeonGenesis/Small/datasets/IDs/real_903626d0/real_903626d0_ovo_dichotomy_01_processed.csv
   generate_new: false
   params:
     n_classes: 2
@@ -204,7 +204,7 @@ model:
   selection_method: conf
 multiclass:
   enabled: true
-  strategy: ova
+  strategy: ovo
 output:
   log_level: INFO
   results_file: ./datasets/results/test_results.csv

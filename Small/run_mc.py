@@ -167,6 +167,36 @@ def main(dichotomy_info, level, study_mode):
 
     # Load or initialize progress
     progress_data = load_multiclass_progress(progress_file)
+
+    # If progress exists, check if the strategy matches. If not, reset progress.
+    if progress_data and progress_data.get('strategy') != dichotomy_info.get('strategy'):
+        logger.warning(
+            f"Strategy mismatch detected. Existing progress is for '{progress_data.get('strategy')}', "
+            f"but current run is '{dichotomy_info.get('strategy')}'. Deleting old progress files and starting fresh."
+        )
+        # Delete the old progress files to avoid confusion
+        try:
+            if os.path.exists(progress_file):
+                os.remove(progress_file)
+                logger.info(f"Deleted old progress file: {progress_file}")
+            if os.path.exists(best_runner_file):
+                os.remove(best_runner_file)
+                logger.info(f"Deleted old best runner file: {best_runner_file}")
+            
+            # Also clean up old dichotomy directories since they're for a different strategy
+            import shutil
+            dichotomy_pattern = os.path.join(main_dataset_dir, "dichotomy_*_run")
+            import glob
+            old_dichotomy_dirs = glob.glob(dichotomy_pattern)
+            for old_dir in old_dichotomy_dirs:
+                if os.path.isdir(old_dir):
+                    shutil.rmtree(old_dir)
+                    logger.info(f"Deleted old dichotomy directory: {old_dir}")
+                    
+        except Exception as e:
+            logger.warning(f"Could not delete old progress files: {e}")
+        progress_data = None  # Reset progress
+
     if not progress_data:
         progress_data = {
             "dataset_id": main_dataset_id,

@@ -406,9 +406,9 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
         
         # Check if we're resuming Stage 1
         start_idx = 0
-        if study_data and not study_data["study_progress"]["stage1_completed"]:
-            start_idx = study_data["study_progress"]["completed_stage1_configs"]
-            best_metric = study_data["study_progress"].get("best_stage1_metric", -np.inf)
+        if study_data and not study_data["execution_state"]["stage1_completed"]:
+            start_idx = study_data["execution_state"]["stage1_position"]
+            best_metric = study_data["execution_state"].get("best_metric_so_far", -np.inf)
             logger.info(f"Resuming Stage 1 from configuration {start_idx + 1}/{total_runner}")
         
         logger.info(f"Starting Stage 1: Finding best runner from {total_runner} configurations (starting from {start_idx + 1}).")
@@ -667,7 +667,8 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
         
         # Update progress and best metric tracking
         study_progress["completed_stage2_configs"] = lse_idx + 1
-        if study_progress["best_metric_so_far"] is None or avg_metric > study_progress["best_metric_so_far"]:
+        if (study_progress["best_metric_so_far"] is None or 
+            (avg_metric != -np.inf and avg_metric > study_progress["best_metric_so_far"])):
             study_progress["best_metric_so_far"] = avg_metric
             # Update best_runner if this config is better
             if avg_metric > best_metric:
