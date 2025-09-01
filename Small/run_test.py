@@ -155,54 +155,52 @@ def ask_use_previous_best(best_runner_file):
     Determine if we should use previous best_runner configuration.
     When running from GUI, this will automatically continue where it left off.
     When running from command line, it will still ask the user.
+    Returns a tuple: (should_use_previous, study_data)
     """
+    study_data = None
     if os.path.exists(best_runner_file):
-        # Check if running in a GUI context (no stdin available)
-        try:
-            # Try to check if stdin is available
-            import sys
-            if not sys.stdin.isatty():
-                # Running in GUI context - automatically use previous configuration
-                print("GUI mode detected: automatically continuing from previous study")
-                return True
-        except:
-            # If any error checking stdin, assume GUI mode
-            print("Non-interactive mode detected: automatically continuing from previous study")
-            return True
-        
-        # Interactive mode - ask user as before
         try:
             with open(best_runner_file, 'r') as f:
-                data = json.load(f)
-            
-            if "study_progress" in data:
-                progress = data["study_progress"]
-                stage1_complete = progress.get("stage1_completed", False)
-                stage1_progress = f"{progress.get('completed_stage1_configs', 0)}/{progress.get('total_stage1_configs', 0)}"
-                stage2_progress = f"{progress.get('completed_stage2_configs', 0)}/{progress.get('total_stage2_configs', 0)}"
-                
-                print(f"\nPrevious study found for this dataset:")
-                print(f"  Stage 1 completed: {stage1_complete}")
-                print(f"  Stage 1 progress: {stage1_progress}")
-                print(f"  Stage 2 progress: {stage2_progress}")
-                print(f"  Last updated: {progress.get('last_updated', 'Unknown')}")
-                
-                if not stage1_complete or progress.get('completed_stage2_configs', 0) < progress.get('total_stage2_configs', 0):
-                    resp = input("¿Quieres continuar desde donde se quedó el estudio anterior? (s/n): ").strip().lower()
-                else:
-                    print("Previous study was completed.")
-                    resp = input("¿Quieres usar la configuración óptima encontrada? (s/n): ").strip().lower()
-            else:
-                # Old format
-                print("Previous best_runner found (old format).")
-                resp = input("¿Quieres usar el último best_runner guardado de la fase 1? (s/n): ").strip().lower()
-                
+                study_data = json.load(f)
         except (json.JSONDecodeError, KeyError):
             print("Error reading previous study file.")
+            study_data = None
+
+        # Check if running in a GUI context (no stdin available)
+        try:
+            import sys
+            if not sys.stdin.isatty():
+                print("GUI mode detected: automatically continuing from previous study")
+                return True, study_data
+        except:
+            print("Non-interactive mode detected: automatically continuing from previous study")
+            return True, study_data
+        
+        # Interactive mode - ask user as before
+        if study_data and "execution_state" in study_data:
+            progress = study_data["execution_state"]
+            stage1_complete = progress.get("stage1_completed", False)
+            stage1_progress = f"{progress.get('stage1_position', 0)}/{progress.get('stage1_total', 0)}"
+            stage2_progress = f"{progress.get('stage2_position', 0)}/{progress.get('stage2_total', 0)}"
+            
+            print(f"\nPrevious study found for this dataset:")
+            print(f"  Stage 1 completed: {stage1_complete}")
+            print(f"  Stage 1 progress: {stage1_progress}")
+            print(f"  Stage 2 progress: {stage2_progress}")
+            print(f"  Last updated: {progress.get('last_updated', 'Unknown')}")
+            
+            if not stage1_complete or progress.get('stage2_position', 0) < progress.get('stage2_total', 0):
+                resp = input("¿Quieres continuar desde donde se quedó el estudio anterior? (s/n): ").strip().lower()
+            else:
+                print("Previous study was completed.")
+                resp = input("¿Quieres usar la configuración óptima encontrada? (s/n): ").strip().lower()
+        else:
+            # Old format or error
+            print("Previous best_runner found (old or invalid format).")
             resp = input("¿Quieres usar el último best_runner guardado? (s/n): ").strip().lower()
             
-        return resp == "s"
-    return False
+        return resp == "s", study_data
+    return False, None
 
 def setup_logging(log_file_path, log_level="INFO"):
     """Configure logging to both console and file"""
@@ -258,19 +256,12 @@ def main(level=None, study_mode="full_study", output_dir=None):
         logging.error(f"Failed to load config from {config_path}: {e}")
         sys.exit(1)
     
+    # Import required modules
+    data_generator, test_module = load_modules()
+
     # Ask user for level and build config (or use provided level)
     if level is None:
         level = ask_user_level()
-    model_config, max_timeout = build_config_from_level(config, level)
-
-    if study_mode == "stage2_only":
-        logger.info("Study mode is 'stage2_only'. Skipping stage 1 iterations.")
-        # Stage 2 only mode - the system will handle whether to use previous results
-        # through the dataset status popup system
-
-    
-    # Import required modules
-    data_generator, test_module = load_modules()
     
     # --- Dataset and Directory Setup ---
     dataset_path = None
@@ -336,6 +327,36 @@ def main(level=None, study_mode="full_study", output_dir=None):
             logger.info(f"Dataset ID: {dataset_id}")
             logger.info(f"Dataset directory: {dataset_dir}")
     
+    # Get dataset-specific best_runner file path (stored at dataset level, not run level)
+    dataset_best_runner_file = get_dataset_specific_best_runner_path(dataset_dir, dataset_id)
+    logger.info(f"Using dataset-specific best_runner file: {dataset_best_runner_file}")
+    
+    # Ask if we should use the previous best_runner configuration
+    # This will show the appropriate popup based on dataset status
+    use_previous, study_data = ask_use_previous_best(dataset_best_runner_file)
+
+    # If resuming, override selected level with the one from the study
+    initial_level = level
+    if use_previous and study_data:
+        previous_level = study_data.get("capilaridad_config", {}).get("level")
+        if previous_level and previous_level != level:
+            logger.info(f"Selected Level {initial_level}, but resuming previous study at Level {previous_level}.")
+            level = previous_level
+
+    # Now, build the final model configuration
+    model_config, max_timeout = build_config_from_level(config, level)
+
+    if study_mode == "stage2_only":
+        logger.info("Study mode is 'stage2_only'. Skipping stage 1 iterations.")
+        # Stage 2 only mode - the system will handle whether to use previous results
+        # through the dataset status popup system
+
+    
+    # Import required modules
+    data_generator, test_module = load_modules()
+    
+    # --- Now we can set up the run directories ---
+    
     # Validate that the dataset file exists
     if not dataset_path or not os.path.exists(dataset_path):
         logger.error(f"Dataset file {dataset_path} does not exist")
@@ -370,20 +391,12 @@ def main(level=None, study_mode="full_study", output_dir=None):
     logger.info(f"Starting model training and evaluation on dataset: {dataset_path}")
     logger.info(f"Using test_size: {test_size} (will use {int((1-test_size)*100)}% for training, {int(test_size*100)}% for testing)")
     
-    # Get dataset-specific best_runner file path (stored at dataset level, not run level)
-    dataset_best_runner_file = get_dataset_specific_best_runner_path(dataset_dir, dataset_id)
-    logger.info(f"Using dataset-specific best_runner file: {dataset_best_runner_file}")
-    
-    # Ask if we should use the previous best_runner configuration
-    # This will show the appropriate popup based on dataset status
-    use_previous = ask_use_previous_best(dataset_best_runner_file)
-    
     # Run test_LSEnsemble with the dataset path, test_size and dataset parameters
     try:
         results = test_module.run_test_from_csv(
             dataset_path, test_size, model_config, output_config, dataset_params,
             use_previous_best_runner=use_previous, best_runner_file=dataset_best_runner_file,
-            study_mode=study_mode
+            study_mode=study_mode, study_data=study_data
         )
         logger.info(f"Testing completed, results saved to {output_config['csv_file']}")
     except KeyboardInterrupt:

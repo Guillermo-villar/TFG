@@ -249,6 +249,7 @@ class MLExperimentGUI:
         
         # State variables
         self.is_running = False
+        self.is_starting = False  # Track initial start phase to prevent progress updates
         self.current_progress_info = None
         
         # GUI variables
@@ -2370,7 +2371,11 @@ class MLExperimentGUI:
         self.add_log_message(f"EXPERIMENT COMPLETED - {timestamp}")
         self.add_log_message("-" * 60)
         
+        # Show success message first
         messagebox.showinfo(self.texts["success"], message)
+        
+        # Automatically generate and show report popup
+        self.generate_and_show_report()
     
     def experiment_error(self, error_msg):
         """Handle experiment error"""
@@ -2392,6 +2397,33 @@ class MLExperimentGUI:
         self.add_log_message("-" * 60)
         
         messagebox.showerror(self.texts["error"], error_msg)
+    
+    def generate_and_show_report(self):
+        """Automatically generate and show experiment report popup"""
+        try:
+            # Add log message about report generation
+            self.add_log_message("Generating experiment report...")
+            
+            # Get current experiment data
+            data_source = self.data_source_var.get()
+            csv_path = self.get_current_csv_path()
+            current_level = self.level_var.get()
+            
+            # Generate report through experiment runner
+            self.experiment_runner.generate_experiment_report(
+                data_source=data_source,
+                csv_path=csv_path,
+                current_level=current_level,
+                gui_root=self.root,
+                language=self.language
+            )
+            
+            self.add_log_message("Report generation completed")
+            
+        except Exception as e:
+            self.add_log_message(f"Error generating report: {str(e)}")
+            # Don't show error popup to avoid interrupting the completion flow
+            # Just log the error so the experiment completion isn't disrupted
     
     def stop_experiment(self):
         """Stop the current experiment"""

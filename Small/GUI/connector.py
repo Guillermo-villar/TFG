@@ -533,107 +533,6 @@ class ExperimentRunner:
             # If there's an error reading multiclass progress, return None to fall back to binary check
             return None
 
-    def get_any_running_experiment_status(self):
-        """
-        Scan for any running experiments (binary or multiclass) and return their status.
-        This is useful when the GUI is showing 'running' but no specific dataset is selected.
-        """
-        try:
-            import glob
-            import os
-            import data_generator
-            
-            # Look for any progress files that might indicate running experiments
-            datasets_dir = os.path.join(self.parent_dir, "datasets", "IDs")
-            if not os.path.exists(datasets_dir):
-                return None
-            
-            # Check for multiclass progress files first
-            multiclass_files = glob.glob(os.path.join(datasets_dir, "*", "multiclass_progress_*.json"))
-            for progress_file in multiclass_files:
-                try:
-                    with open(progress_file, 'r') as f:
-                        progress_data = json.load(f)
-                    
-                    # Check if it's incomplete (still running)
-                    # The summary information is in the "summary" section
-                    summary = progress_data.get("summary", {})
-                    completed = summary.get("completed_dichotomies", 0)
-                    total = summary.get("total_dichotomies", 0)
-                    in_progress = summary.get("in_progress_dichotomies", 0)
-                    
-                    # A multiclass experiment is running if:
-                    # 1. Not all dichotomies are completed, OR
-                    # 2. There are dichotomies in progress
-                    if (completed < total and total > 0) or in_progress > 0:
-                        # This is an incomplete multiclass experiment
-                        dataset_id = progress_data.get("dataset_id", "unknown")
-                        
-                        # Get the original CSV path
-                        dataset_dir = os.path.dirname(progress_file)
-                        original_csv = os.path.join(dataset_dir, f"{dataset_id}_original.csv")
-                        
-                        if os.path.exists(original_csv):
-                            # Return status for this running multiclass experiment
-                            with open(self.config_path, 'r') as f:
-                                config = yaml.safe_load(f)
-                            current_capilaridad_config = config.get("capilaridad_levels", {}).get(2, {})
-                            
-                            # Use the existing multiclass status method
-                            dataset_paths = data_generator.get_dataset_directory_structure(dataset_id)
-                            return self.get_multiclass_status(dataset_paths, dataset_id, current_capilaridad_config, 2)
-                except Exception:
-                    continue
-            
-            # Check for binary progress files
-            binary_files = glob.glob(os.path.join(datasets_dir, "*", "best_runner_*.json"))
-            for progress_file in binary_files:
-                try:
-                    from test_LSEnsemble import load_study_progress
-                    study_data = load_study_progress(progress_file)
-                    
-                    if study_data and "execution_state" in study_data:
-                        exec_state = study_data["execution_state"]
-                        stage1_complete = exec_state.get("stage1_completed", False)
-                        stage1_pos = exec_state.get("stage1_position", 0)
-                        stage1_total = exec_state.get("stage1_total", 0)
-                        stage2_pos = exec_state.get("stage2_position", 0)
-                        stage2_total = exec_state.get("stage2_total", 0)
-                        
-                        # Check if this experiment is incomplete
-                        if not stage1_complete or (stage1_complete and stage2_pos < stage2_total):
-                            # Extract dataset_id from file path
-                            dataset_id = os.path.basename(progress_file).replace("best_runner_", "").replace(".json", "")
-                            
-                            # Get the dataset path
-                            dataset_dir = os.path.dirname(progress_file)
-                            csv_files = glob.glob(os.path.join(dataset_dir, "*.csv"))
-                            
-                            if csv_files:
-                                # Return binary experiment status
-                                with open(self.config_path, 'r') as f:
-                                    config = yaml.safe_load(f)
-                                current_capilaridad_config = config.get("capilaridad_levels", {}).get(2, {})
-                                
-                                # Generate a minimal status response
-                                return {
-                                    "status": "existing",
-                                    "dataset_id": dataset_id,
-                                    "experiment_type": "binary",
-                                    "stage1_completed": stage1_complete,
-                                    "stage1_progress": f"{stage1_pos}/{stage1_total}",
-                                    "stage2_progress": f"{stage2_pos}/{stage2_total}",
-                                    "current_stage": exec_state.get("current_stage", 1),
-                                    "message": f"Binary experiment in progress"
-                                }
-                except Exception:
-                    continue
-            
-            return None
-            
-        except Exception as e:
-            return None
-
     def get_multiclass_timing_and_eta(self, dataset_paths, completed_dichotomies, total_dichotomies):
         """
         Calculate timing statistics and ETA for multiclass experiments.
@@ -919,6 +818,72 @@ class ExperimentRunner:
         
         return timing_info
 
+    def generate_experiment_report(self, data_source="synthetic", csv_path=None, current_level=1, gui_root=None, language: str = "en"):
+        """
+        Generate and show experiment report popup automatically after completion.
+        Uses the internal show_report_popup(experiment_path, language, parent) entry point.
+        """
+        try:
+            # Get experiment folder path
+            experiment_path = self.get_experiment_folder_path(data_source, csv_path, current_level)
+            
+            if not experiment_path or not os.path.exists(experiment_path):
+                raise Exception("No experiment folder found to generate report")
+            
+            # Add parent directory (Small) to path since report_generation is there
+            if self.parent_dir not in sys.path:
+                sys.path.insert(0, self.parent_dir)
+            
+            # Import and call the internal entry point for report preview
+            try:
+                from report_generation.pdf_preview_popup import show_report_popup
+            except ModuleNotFoundError:
+                # Fallback: add the Small directory explicitly to sys.path
+                small_dir = os.path.dirname(os.path.abspath(__file__))  # .../Small/GUI
+                small_dir = os.path.dirname(small_dir)  # .../Small
+                if small_dir not in sys.path:
+                    sys.path.insert(0, small_dir)
+                from report_generation.pdf_preview_popup import show_report_popup
+
+            # Parent should be the Tk root passed in from the GUI
+            parent = gui_root
+
+            # Call the consolidated popup generator
+            show_report_popup(experiment_path, language=language, parent=parent)
+            
+        except Exception as e:
+            raise Exception(f"Error generating experiment report: {str(e)}")
+    
+    def get_experiment_folder_path(self, data_source="synthetic", csv_path=None, current_level=1):
+        """Get the path to the experiment folder for report generation"""
+        try:
+            # Import required modules
+            sys.path.insert(0, self.parent_dir)
+            import data_generator
+            
+            # Load current config to get dataset parameters
+            with open(self.config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            
+            # Generate dataset ID based on parameters
+            if data_source == "synthetic":
+                params = config.get("data", {}).get("params", {})
+                dataset_id = data_generator.generate_dataset_id(params, "synth")
+            else:
+                # For real data, use the improved content-based hash generation
+                if csv_path and os.path.exists(csv_path):
+                    dataset_id = data_generator.generate_real_data_id(csv_path)
+                else:
+                    # Fallback for non-existent files
+                    params = {"file_path": csv_path}
+                    dataset_id = data_generator.generate_dataset_id(params, "real")
+            
+            # Get dataset directory structure
+            dataset_paths = data_generator.get_dataset_directory_structure(dataset_id)
+            return dataset_paths["dataset_dir"]
+            
+        except Exception as e:
+            return None
 
 def main():
     """Main entry point for the GUI application"""

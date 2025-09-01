@@ -7,20 +7,23 @@ from datetime import datetime
 from jinja2 import Template
 
 class ReportHTMLGenerator:
-    def __init__(self, experiment_data):
+    def __init__(self, experiment_data, language: str = "en"):
         self.data = experiment_data
+        self.language = (language or "en").lower()
 
     def render_html(self):
         # Get current timestamp
         current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+        # Light-weight i18n for a few key labels
+        t = self._translations()
         
         # Simple, modern HTML template with CSS
         template = Template('''
         <!DOCTYPE html>
-        <html lang="en">
+        <html lang="{{ lang }}">
         <head>
             <meta charset="UTF-8">
-            <title>Experiment Report</title>
+            <title>{{ t.title }}</title>
             <style>
                 @page { size: A4; margin: 1in; }
                 body { 
@@ -140,20 +143,18 @@ class ReportHTMLGenerator:
         <body>
             <div class="container">
                 <div class="header">
-                    <h1><span class="emoji">📊</span>Experiment Report</h1>
+                    <h1><span class="emoji">📊</span>{{ t.title }}</h1>
                     <div class="dataset-name">{{ data.dataset_name }}</div>
                     <p style="margin: 15px 0 0 0; color: #666; font-size: 1.1em;">
-                        <strong>Experiment Type:</strong> {{ 'Multiclass Classification' if data.is_multiclass else 'Binary Classification' }}
+                        <strong>{{ t.experiment_type }}</strong> {{ 'Multiclass Classification' if data.is_multiclass else 'Binary Classification' }}
                     </p>
                 </div>
 
                 <div class="section">
-                    <h2><span class="emoji">🏷️</span>Class Distribution</h2>
+                    <h2><span class="emoji">🏷️</span>{{ t.class_distribution }}</h2>
                     <div class="explanation">
-                        <strong>What is Class Distribution?</strong><br>
-                        Class distribution shows how many samples (data points) belong to each category in your dataset. 
-                        A balanced dataset has roughly equal numbers in each class, while an imbalanced dataset has 
-                        some classes with many more samples than others.
+                        <strong>{{ t.what_is_class_dist_title }}</strong><br>
+                        {{ t.what_is_class_dist_desc }}
                     </div>
                     
                     {% if data.class_distribution %}
@@ -165,7 +166,7 @@ class ReportHTMLGenerator:
                         
                         {% if data.imbalance_ratio %}
                         <div style="margin: 20px 0;">
-                            <span class="imbalance">⚖️ Imbalance Ratio: {{ data.imbalance_ratio }}</span>
+                            <span class="imbalance">⚖️ {{ t.imbalance_ratio }}: {{ data.imbalance_ratio }}</span>
                             {% set ratio = data.imbalance_ratio|float %}
                             {% if ratio <= 1.5 %}
                                 <span class="imbalance-level low">Well Balanced</span>
@@ -178,15 +179,12 @@ class ReportHTMLGenerator:
                             {% endif %}
                         </div>
                         <div class="explanation">
-                            <strong>Understanding Imbalance Ratio:</strong><br>
-                            • <strong>1.0 - 1.5:</strong> Well balanced dataset - all classes have similar representation<br>
-                            • <strong>1.5 - 3.0:</strong> Moderately imbalanced - some classes are underrepresented<br>
-                            • <strong>3.0 - 10.0:</strong> Highly imbalanced - significant disparity between classes<br>
-                            • <strong>10.0+:</strong> Extremely imbalanced - some classes are severely underrepresented
+                            <strong>{{ t.imbalance_understanding }}</strong><br>
+                            {{ t.imbalance_bullets | safe }}
                         </div>
                         {% endif %}
                     {% else %}
-                        <div class="card">No class distribution data available.</div>
+                        <div class="card">{{ t.no_class_dist }}</div>
                     {% endif %}
                 </div>
 
@@ -747,4 +745,63 @@ class ReportHTMLGenerator:
         </body>
         </html>
         ''')
-        return template.render(data=self.data, current_time=current_time)
+        return template.render(
+            data=self.data,
+            current_time=current_time,
+            lang=self.language,
+            t=t,
+        )
+
+    def _translations(self):
+        """Very small set of translations for key headings.
+        Supported: 'en' (default), 'es'.
+        """
+        if self.language.startswith("es"):
+            return type(
+                "T",
+                (),
+                dict(
+                    title="Informe del Experimento",
+                    experiment_type="Tipo de Experimento:",
+                    class_distribution="Distribución de Clases",
+                    what_is_class_dist_title="¿Qué es la Distribución de Clases?",
+                    what_is_class_dist_desc=(
+                        "La distribución de clases muestra cuántas muestras pertenecen a cada categoría del conjunto de datos. "
+                        "Un conjunto balanceado tiene números similares por clase; uno desbalanceado tiene clases con muchas más muestras que otras."
+                    ),
+                    imbalance_ratio="Ratio de Desbalance",
+                    imbalance_understanding="Entendiendo el Ratio de Desbalance:",
+                    imbalance_bullets=(
+                        "• <strong>1.0 - 1.5:</strong> Bien balanceado<br>"
+                        "• <strong>1.5 - 3.0:</strong> Moderado desbalance<br>"
+                        "• <strong>3.0 - 10.0:</strong> Alto desbalance<br>"
+                        "• <strong>10.0+:</strong> Desbalance extremo"
+                    ),
+                    no_class_dist="No hay datos de distribución de clases disponibles.",
+                ),
+            )()
+        # default EN
+        return type(
+            "T",
+            (),
+            dict(
+                title="Experiment Report",
+                experiment_type="Experiment Type:",
+                class_distribution="Class Distribution",
+                what_is_class_dist_title="What is Class Distribution?",
+                what_is_class_dist_desc=(
+                    "Class distribution shows how many samples (data points) belong to each category in your dataset. "
+                    "A balanced dataset has roughly equal numbers in each class, while an imbalanced dataset has "
+                    "some classes with many more samples than others."
+                ),
+                imbalance_ratio="Imbalance Ratio",
+                imbalance_understanding="Understanding Imbalance Ratio:",
+                imbalance_bullets=(
+                    "• <strong>1.0 - 1.5:</strong> Well balanced dataset - all classes have similar representation<br>"
+                    "• <strong>1.5 - 3.0:</strong> Moderately imbalanced - some classes are underrepresented<br>"
+                    "• <strong>3.0 - 10.0:</strong> Highly imbalanced - significant disparity between classes<br>"
+                    "• <strong>10.0+:</strong> Extremely imbalanced - some classes are severely underrepresented"
+                ),
+                no_class_dist="No class distribution data available.",
+            ),
+        )()

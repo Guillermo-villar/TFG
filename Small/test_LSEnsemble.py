@@ -160,7 +160,7 @@ def save_study_progress(best_runner_file, best_runner_data, study_progress):
 
 def run_test_from_csv(
     dataset_path, test_size, model_config, output_config, dataset_params=None, data_params_list=None,
-    use_previous_best_runner=False, best_runner_file=None, study_mode="full_study"
+    use_previous_best_runner=False, best_runner_file=None, study_mode="full_study", study_data=None
 ):
     """
     Run the ensemble test with data loaded from a single CSV file or multiple data parameter sets.
@@ -171,9 +171,10 @@ def run_test_from_csv(
     csv_file = output_config.get("csv_file", "test_results.csv")
     os.makedirs(os.path.dirname(csv_file) if os.path.dirname(csv_file) else '.', exist_ok=True)
     
-    # Check if we're resuming from previous progress
-    study_data = load_study_progress(best_runner_file) if use_previous_best_runner else None
-    
+    # If study_data is not passed directly, try loading it
+    if use_previous_best_runner and not study_data:
+        study_data = load_study_progress(best_runner_file)
+
     csv_columns = [
         'data_params', 'model_name', 'params', 'metric', 'confusion_matrix', 'accuracy', 'time_taken',
         'label_switching_used', 'num_labels_switched_pos_to_neg', 'total_pos_labels', 'pct_pos_switched',
@@ -409,6 +410,8 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
         if study_data and not study_data["execution_state"]["stage1_completed"]:
             start_idx = study_data["execution_state"]["stage1_position"]
             best_metric = study_data["execution_state"].get("best_metric_so_far", -np.inf)
+            if best_metric is None:
+                best_metric = -np.inf
             logger.info(f"Resuming Stage 1 from configuration {start_idx + 1}/{total_runner}")
         
         logger.info(f"Starting Stage 1: Finding best runner from {total_runner} configurations (starting from {start_idx + 1}).")
@@ -524,7 +527,7 @@ def _run_single_experiment(df, test_size, model_config, output_config, data_stat
             
             # Update progress after each configuration
             study_progress["completed_stage1_configs"] = idx + 1
-            study_progress["best_stage1_metric"] = best_metric
+            study_progress["best_metric_so_far"] = best_metric
             
             # Save progress after every run for real-time tracking
             save_study_progress(best_runner_file, best_runner or base_config, study_progress)
