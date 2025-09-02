@@ -1,70 +1,123 @@
-# TFG-
-Hay que renombrar New_Code por SmartNOC
+🇪🇸
+# Framework de Experimentación de Machine Learning
 
+Este proyecto es un framework de software diseñado para automatizar la ejecución de experimentos de clasificación de Machine Learning. La herramienta proporciona una interfaz gráfica para gestionar, ejecutar y analizar el rendimiento de modelos de ensamblaje bayesianos en problemas de clasificación tanto binaria como multiclase.
 
-Modelo q no tiene pq ser MLP;
+## Características Principales
 
-Trabajar con datos más pequeños (otros datasets). 
+*   **Ejecución Automatizada**: Lanza estudios completos para encontrar la configuración óptima de modelos de ensamblaje bayesianos.
+*   **Soporte Biclase y Multiclase**: Acepta ficheros CSV para problemas de clasificación con dos o más clases.
+*   **Preprocesamiento Automático**: Incluye una fase de preprocesamiento de datos que adapta los ficheros CSV de entrada. Este proceso es robusto, pero puede encontrar dificultades con formatos de datos no estándar.
+*   **Estrategias ECOC**: Para problemas multiclase, implementa estrategias de codificación de salida (ECOC) para descomponer el problema en clasificadores binarios.
+*   **Generación de Informes**: Al finalizar un experimento, el sistema genera automáticamente un informe detallado con las métricas de rendimiento, la mejor configuración encontrada y visualizaciones.
+*   **Interfaz Gráfica Bilingüe**: Toda la gestión de los experimentos se realiza a través de una GUI intuitiva. La aplicación está disponible tanto en **español** como en **inglés**.
 
-El 
+## Requisitos
 
-Probar otros metodos de optimizacion del LBFGS. 
+*   **Python**: Se requiere una versión de **Python 3.10** o superior.
+*   **Dependencias**: Todas las librerías necesarias están listadas en el fichero `requirements.txt`.
+*   **Hardware**: El software es compatible con cualquier equipo, pero su rendimiento mejora drásticamente en máquinas preparadas para Machine Learning. Para obtener la máxima velocidad, se recomienda encarecidamente el uso de una **GPU NVIDIA compatible con CUDA**.
 
-Trabajando en un codigo unico por su parte, LBFGS. Yo extracción de parámetros, a un high-level. SIEMPRE aplicando algo del rollo de la tanh comprimida q teniamos. La función que minimizamos está puesta en el loss,
+## Instalación
 
-GridSearchCV
+Para poner en marcha el entorno de trabajo, sigue estos pasos:
 
+1.  **Clonar el repositorio:**
+    ```bash
+    git clone <URL-del-repositorio>
+    cd <nombre-del-directorio>
+    ```
 
-Apuntes primeras runs small: 
+2.  **Crear un entorno virtual (recomendado):**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
 
-Para analizar small primero - 1 Analisis de parámetros en teoría, 2 Analisis de la implementación en código, 3 analisis de base de datos, 4 analisis coherencia de todos los anteriores. 
+3.  **Instalar las dependencias:**
+    Asegúrate de tener el entorno virtual activado y ejecuta:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-Una vez hecho esto, (TODO after 3 y 4) pensar y proponer nuevas bases de datos. Analisis previo a resultados, y repetir analisis de un dataset (1-4) anteriores. 
+## Uso
 
-Con esto hecho dos veces, reunión y seguimos.
+El punto de entrada principal de la aplicación es el script `GUI/connector.py`.
 
+1.  **Lanzar la aplicación:**
+    Ejecuta el siguiente comando desde la raíz del directorio `Small`:
+    ```bash
+    python3 GUI/connector.py
+    ```
 
-LSEnsemble
+2.  **Seleccionar un Dataset:**
+    Desde la interfaz gráfica, podrás seleccionar un fichero `.csv` que contenga tu dataset. El sistema detectará automáticamente si se trata de un problema de clasificación binaria o multiclase.
 
-Hay muchas cosas q comentar
+3.  **Ejecutar el Experimento:**
+    Inicia el estudio. El framework comenzará el proceso de preprocesamiento, entrenamiento de los diferentes modelos de ensamblaje bayesianos y la búsqueda de la mejor estrategia.
 
-Por ejemplo, weights es clave. Todo el estudio de desbalances (Y mas adelante habria q entrar en estrategias)
-Es absolutamente relativo a los desbalances q tengas. El estudio se tiene que ajustar del todo a los IR que se tengan!!
+4.  **Visualizar el Informe:**
+    Una vez finalizado el análisis, se generará un informe con los resultados, que podrás visualizar directamente desde la aplicación.
 
-Los runs iterativos por favor!! Hay q hacer un estudio de iteraciones. Como? Q es mejor? 
+---
 
-Ya tengo alguna idea..
+🇬🇧/🇺🇸
+# Machine Learning Experimentation Framework
 
-Idea principal - Runs y parametros en entorno reducido. De ahí extrapolar, habiendo sacado info. 
+This project is a software framework designed to automate the execution of Machine Learning classification experiments. The tool provides a graphical user interface to manage, run, and analyze the performance of Bayesian ensemble models on both binary and multi-class classification problems.
 
-Comparación teoría, resultados de "laboratorio" y resultados de verdad. Implicaciones principalmente y con enfoque a... IR!! Desbalances.
+## Main Features
 
-Tener en cuenta las distintas estrategias. Lista: 
+*   **Automated Execution**: Launches comprehensive studies to find the optimal configuration for Bayesian ensemble models.
+*   **Binary and Multi-class Support**: Accepts CSV files for classification problems with two or more classes.
+*   **Automatic Preprocessing**: Includes a data preprocessing stage that adapts the input CSV files. This process is robust but may encounter issues with non-standard data formats.
+*   **ECOC Strategies**: For multi-class problems, it implements Error-Correcting Output Codes (ECOC) strategies to decompose the problem into binary classifiers.
+*   **Report Generation**: Upon completion of an experiment, the system automatically generates a detailed report with performance metrics, the best configuration found, and visualizations.
+*   **Bilingual Graphical Interface**: All experiment management is handled through an intuitive GUI. The application is available in both **English** and **Spanish**.
 
-Label switching, SMOTE, QRBC (a 0, pero está). 
+## Requirements
 
+*   **Python**: **Python 3.10** or a higher version is required.
+*   **Dependencies**: All necessary libraries are listed in the `requirements.txt` file.
+*   **Hardware**: The software is compatible with any computer, but its performance is dramatically improved on machines equipped for Machine Learning. For maximum speed, the use of a **CUDA-compatible NVIDIA GPU** is strongly recommended.
 
-labelswitching (nuevo) sacar parámetro de trabajadores mirar data_loading (yo creo q no aplica mucho), extraer al yaml  
+## Installation
 
+To set up the working environment, follow these steps:
 
-COSAS IR: 
+1.  **Clone the repository:**
+    ```bash
+    git clone <repository-URL>
+    cd <directory-name>
+    ```
 
-Desbalanceo de costes, (SMOTE, random undersampling, ). Puedo usar modelos simples para encontrar lo mejor
+2.  **Create a virtual environment (recommended):**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
 
-Paquete de learners, IR
+3.  **Install dependencies:**
+    Make sure the virtual environment is activated and run:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-(costes: coste fijo (mayor en la minoritaria), coste variables al error (cost dependent learning)
-(ensembles : numero de cosas, tipo de aprendiz, otros aprendizes distintos) 
+## Usage
 
+The main entry point for the application is the `GUI/connector.py` script.
 
-MULTICLASE?? - 
+1.  **Launch the application:**
+    Run the following command from the root of the `Small` directory:
+    ```bash
+    python3 GUI/connector.py
+    ```
 
-Gaussiano para la generación de datasets
+2.  **Select a Dataset:**
+    From the graphical interface, you can select a `.csv` file containing your dataset. The system will automatically detect whether it is a binary or multi-class classification problem.
 
-Paralelización
+3.  **Run the Experiment:**
+    Start the study. The framework will begin the process of preprocessing, training the different Bayesian ensemble models, and searching for the best strategy.
 
-Mayo - 
-
-Después de aplicar analisis de datos, me he dado cuenta de que mis scores son malas, porque las clases minoritarias no se están gestionando bien. Estudio de Loss Function añadido como estrategia de lidiar con desbalanceos.
-
-Estoy trabajando con ensembles. APROVECHA COÑO
+4.  **View the Report:**
+    Once the analysis is complete, a report with the results will be generated, which you can view directly from the application.
