@@ -1,7 +1,9 @@
-🇪🇸
+🇪🇸 -ES
 # Framework de Experimentación de Machine Learning
 
-Este proyecto es un framework de software diseñado para automatizar la ejecución de experimentos de clasificación de Machine Learning. La herramienta proporciona una interfaz gráfica para gestionar, ejecutar y analizar el rendimiento de modelos de ensamblaje bayesianos en problemas de clasificación tanto binaria como multiclase.
+El objetivo principal de este proyecto es ofrecer un framework de software robusto que agiliza y automatiza la experimentación con Machine Learning. Su propósito es abordar uno de los desafíos más comunes en la clasificación: el desbalance de clases en los datasets. El sistema está diseñado específicamente para encontrar las configuraciones óptimas de modelos de ensamblaje bayesianos, permitiendo al usuario analizar cómo diferentes grados de desbalance afectan al rendimiento y cuál es la mejor estrategia para mitigarlo.
+
+Los modelos utilizados son **Ensamblajes de Perceptrones Multicapa (MLP) Bayesianos**. Estos modelos combinan la capacidad predictiva de los ensamblajes (utilizando múltiples modelos para mejorar la robustez) con las fortalezas de los métodos bayesianos, que permiten cuantificar la incertidumbre en las predicciones. Esta característica es especialmente valiosa cuando se trabaja con datos desbalanceados, ya que el modelo puede ser más "honesto" sobre su confianza al clasificar las clases minoritarias.
 
 ## Características Principales
 
@@ -14,9 +16,10 @@ Este proyecto es un framework de software diseñado para automatizar la ejecuci�
 
 ## Requisitos
 
-*   **Python**: Se requiere una versión de **Python 3.10** o superior.
-*   **Dependencias**: Todas las librerías necesarias están listadas en el fichero `requirements.txt`.
+*   **Python**: Se requiere la versión específica **Python 3.10.16**. El uso de esta versión es crucial para garantizar la compatibilidad total con las librerías del proyecto.
+*   **Dependencias**: Todas las librerías necesarias están listadas en el fichero `requirements.txt`. Es fundamental instalar las **versiones exactas** especificadas en este fichero para asegurar el correcto funcionamiento del software.
 *   **Hardware**: El software es compatible con cualquier equipo, pero su rendimiento mejora drásticamente en máquinas preparadas para Machine Learning. Para obtener la máxima velocidad, se recomienda encarecidamente el uso de una **GPU NVIDIA compatible con CUDA**.
+*   **Documentación Adicional**: Para un entendimiento completo y detallado del funcionamiento de la aplicación, es fundamental leer el fichero `INSTRUCTIONS.md`.
 
 ## Instalación
 
@@ -61,10 +64,12 @@ El punto de entrada principal de la aplicación es el script `GUI/connector.py`.
 
 ---
 
-🇬🇧/🇺🇸
+🇬🇧/🇺🇸 -EN
 # Machine Learning Experimentation Framework
 
-This project is a software framework designed to automate the execution of Machine Learning classification experiments. The tool provides a graphical user interface to manage, run, and analyze the performance of Bayesian ensemble models on both binary and multi-class classification problems.
+The main goal of this project is to provide a robust software framework that streamlines and automates Machine Learning experimentation. Its purpose is to address one of the most common challenges in classification: class imbalance in datasets. The system is specifically designed to find the optimal configurations for Bayesian ensemble models, allowing the user to analyze how different degrees of imbalance affect performance and to determine the best strategy to mitigate it.
+
+The models at the core of this framework are **Bayesian Multi-Layer Perceptron (MLP) Ensembles**. These models combine the predictive power of ensembles (using multiple models to improve robustness) with the strengths of Bayesian methods, which allow for the quantification of uncertainty in predictions. This feature is particularly valuable when dealing with imbalanced data, as the model can be more "honest" about its confidence when classifying minority classes.
 
 ## Main Features
 
@@ -77,9 +82,10 @@ This project is a software framework designed to automate the execution of Machi
 
 ## Requirements
 
-*   **Python**: **Python 3.10** or a higher version is required.
-*   **Dependencies**: All necessary libraries are listed in the `requirements.txt` file.
+*   **Python**: The specific version **Python 3.10.16** is required. Using this version is crucial to ensure full compatibility with the project's libraries.
+*   **Dependencies**: All necessary libraries are listed in the `requirements.txt` file. It is essential to install the **exact versions** specified in this file to ensure the software works correctly.
 *   **Hardware**: The software is compatible with any computer, but its performance is dramatically improved on machines equipped for Machine Learning. For maximum speed, the use of a **CUDA-compatible NVIDIA GPU** is strongly recommended.
+*   **Additional Documentation**: For a complete and detailed understanding of the application's functionality, it is essential to read the `INSTRUCTIONS.md` file.
 
 ## Installation
 
@@ -120,4 +126,4 @@ The main entry point for the application is the `GUI/connector.py` script.
     Start the study. The framework will begin the process of preprocessing, training the different Bayesian ensemble models, and searching for the best strategy.
 
 4.  **View the Report:**
-    Once the analysis is complete, a report with the results will be generated, which you can view directly from the application.
+    Once the analysis is complete, a report with the results will be generated, which you can view
