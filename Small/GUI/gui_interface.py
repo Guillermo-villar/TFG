@@ -265,6 +265,7 @@ class MLExperimentGUI:
         # Separate variables for industry datasets (just for display) and user files (for actual use)
         self.industry_csv_path = ""  # Only for industry dataset selection
         self.user_csv_path = ""      # Only for user-selected files
+        self.original_csv_path = ""  # Original file path before multiclass processing (for report generation)
         self.csv_file_map = {}
         
         # Multiclass detection state
@@ -547,9 +548,13 @@ class MLExperimentGUI:
         
         # Clear user manual selection when selecting industry dataset
         self.user_csv_path = ""
+        self.original_csv_path = ""
         
         # Get the full path from the map (this is just for industry datasets display)
         self.industry_csv_path = self.csv_file_map.get(selected_display_name, "")
+        
+        # Store original path for industry datasets too
+        self.original_csv_path = self.industry_csv_path
         
         # For industry datasets: show only filename in dropdown, full path in display label
         if self.industry_csv_path and os.path.exists(self.industry_csv_path):
@@ -576,6 +581,7 @@ class MLExperimentGUI:
             # Switching to synthetic data - clear all CSV selections
             self.industry_csv_path = ""
             self.user_csv_path = ""
+            self.original_csv_path = ""
             self.csv_full_path_display_var.set("")
         
         # Iterate over child widgets of csv_options_frame to enable/disable them
@@ -643,6 +649,9 @@ class MLExperimentGUI:
             import os
             sys.path.append(os.path.dirname(os.path.abspath(__file__)))
             from csv_preloading import CSVPreprocessor
+            
+            # Store the original file path BEFORE any processing
+            self.original_csv_path = filepath
             
             # Clear industry dataset selection when selecting manual file
             self.industry_csv_path = ""
@@ -1191,7 +1200,7 @@ class MLExperimentGUI:
     def create_custom_progress_bar(self, parent):
         """Create custom progress bar that shows both Stage 1 and Stage 2"""
         # Canvas for custom progress bar
-        self.progress_canvas = tk.Canvas(parent, height=25, bg='white', 
+        self.progress_canvas = tk.Canvas(parent, height=35, bg='white', 
                                        relief='sunken', bd=1)
         self.progress_canvas.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(2, 0))
         
@@ -1226,7 +1235,7 @@ class MLExperimentGUI:
         if canvas_width <= 1:
             canvas_width = 300
         if canvas_height <= 1:
-            canvas_height = 23
+            canvas_height = 33
         
         # Parse progress values
         try:
@@ -1236,11 +1245,11 @@ class MLExperimentGUI:
             stage1_current = stage1_total = stage2_current = stage2_total = 0
         
         # Check if this is a multiclass experiment (stage2_total = 0 indicates multiclass)
-        is_multiclass = (stage2_total == 0 and stage1_total > 0)
-        
+        is_multiclass = (stage2_total == 0 and stage1_total > 0) and not stage1_complete
+
         if is_multiclass:
             # Multiclass mode: show single progress bar for dichotomies
-            self.draw_multiclass_progress_bar(canvas_width, canvas_height, stage1_current, stage1_total, stage1_complete)
+            self.draw_multiclass_progress_bar(canvas_width, canvas_height, stage1_current, stage1_total, experiment_complete)
         else:
             # Binary mode: show two-stage progress bar
             self.draw_binary_progress_bar(canvas_width, canvas_height, stage1_current, stage1_total, 
@@ -2081,6 +2090,30 @@ class MLExperimentGUI:
         
         return result.get()
 
+    def reconstitute_models(self, dataset_status):
+        """
+        Trigger the model reconstitution process for a completed multiclass experiment.
+        """
+        try:
+            self.add_log_message("Starting model reconstitution process...")
+            
+            # Extract necessary information from dataset_status
+            dataset_id = dataset_status.get("dataset_id")
+            if not dataset_id:
+                messagebox.showerror("Error", "Could not find dataset ID for reconstitution.")
+                return
+
+            # Call the experiment runner to handle the reconstitution
+            self.experiment_runner.reconstitute_multiclass_models(dataset_id)
+            
+            messagebox.showinfo("Process Started", 
+                                "Model reconstitution has been initiated. See logs for details.")
+
+        except Exception as e:
+            error_message = f"Failed to start reconstitution: {str(e)}"
+            self.add_log_message(error_message)
+            messagebox.showerror("Error", error_message)
+
     def delete_dataset_progress(self, data_source, csv_path, dataset_status):
         """Handle dataset progress deletion with confirmation"""
         # Show confirmation dialog
@@ -2175,10 +2208,21 @@ class MLExperimentGUI:
             if self.is_running:
                 self.progress_detail_var.set("Experiment running...")
     
-    def get_current_csv_path(self):
-        """Get the current CSV path based on user selection"""
+    def get_current_csv_path(self, for_report_generation=False):
+        """
+        Get the current CSV path based on user selection
+        
+        Parameters:
+        -----------
+        for_report_generation : bool
+            If True, returns the original file path (before multiclass processing)
+            If False, returns the working file path (for experiment execution)
+        """
         if self.data_source_var.get() == "real":
-            if hasattr(self, 'user_csv_path') and self.user_csv_path:
+            if for_report_generation and self.original_csv_path:
+                # For report generation, always use the original file path
+                return self.original_csv_path
+            elif hasattr(self, 'user_csv_path') and self.user_csv_path:
                 return self.user_csv_path
             elif hasattr(self, 'industry_csv_path') and self.industry_csv_path:
                 return self.industry_csv_path
@@ -2279,8 +2323,8 @@ class MLExperimentGUI:
             # Extract multiclass-specific progress
             completed_dichotomies = multiclass_info.get("completed_dichotomies", 0)
             total_dichotomies = multiclass_info.get("total_dichotomies", 0)
-            strategy = multiclass_info.get("strategy", "UNKNOWN")
-            n_classes = multiclass_info.get("n_classes", "?")
+            in_progress_dichotomies = multiclass_info.get("in_progress_dichotomies", 0)
+            current_dichotomy_index = multiclass_info.get("current_dichotomy_index", 0)
             
             # Create progress string that matches expected format
             dichotomy_progress = f"{completed_dichotomies}/{total_dichotomies}"
@@ -2295,6 +2339,8 @@ class MLExperimentGUI:
             detail_parts = []
             
             # Add strategy and class information
+            strategy = multiclass_info.get("strategy", "UNKNOWN")
+            n_classes = multiclass_info.get("n_classes", "?")
             detail_parts.append(f"{strategy} • {n_classes} classes")
             
             # Add ETA timing information
@@ -2406,7 +2452,7 @@ class MLExperimentGUI:
             
             # Get current experiment data
             data_source = self.data_source_var.get()
-            csv_path = self.get_current_csv_path()
+            csv_path = self.get_current_csv_path(for_report_generation=True)  # Use original path for reports
             current_level = self.level_var.get()
             
             # Generate report through experiment runner

@@ -13,10 +13,13 @@ from PIL import Image, ImageTk
 from pdf2image import convert_from_path
 
 class PDFPreviewPopup:
-    def __init__(self, parent, pdf_path, save_callback=None):
+    def __init__(self, parent, pdf_path, save_callback=None, experiment_data=None, experiment_runner=None, title="PDF Report Preview"):
         self.parent = parent
         self.pdf_path = pdf_path
         self.save_callback = save_callback
+        self.experiment_data = experiment_data  # Added to check if multiclass
+        self.experiment_runner = experiment_runner  # Added for reconstitution callback
+        self.title = title  # Window title
         self.images = []
         self.tk_images = []
         self.current_page = 0
@@ -46,7 +49,7 @@ class PDFPreviewPopup:
 
     def _show_popup(self):
         self.popup = Toplevel(self.parent)
-        self.popup.title("PDF Report Preview")
+        self.popup.title(self.title)
         self.popup.geometry("700x900")
         self.popup.configure(bg="#ffffff")
         self.popup.resizable(False, False)
@@ -107,6 +110,13 @@ class PDFPreviewPopup:
                          command=self.save_pdf)
         save_btn.pack(side=LEFT, pady=10)
         
+        # Reconstitute Models button (center) - only for multiclass experiments
+        if self.experiment_data and self.experiment_data.get('is_multiclass', False):
+            self.reconstitute_btn = Button(button_frame, text="Reconstitute Models", font=("Segoe UI", 11), 
+                                    bg="#FFC107", fg="black", relief="flat", padx=15, pady=8,
+                                    command=self.reconstitute_models)
+            self.reconstitute_btn.pack(side=LEFT, padx=(10, 0), pady=10)
+        
         # Close button (right)
         close_btn = Button(button_frame, text="Close", font=("Segoe UI", 11), 
                           bg="#6c757d", fg="white", relief="flat", padx=20, pady=8,
@@ -123,6 +133,222 @@ class PDFPreviewPopup:
                 import shutil
                 shutil.copy(self.pdf_path, file_path)
             messagebox.showinfo("PDF Saved", f"Report saved to {file_path}", parent=self.popup)
+
+    def reconstitute_models(self):
+        """Handle the Reconstitute Models button click with loading state"""
+        if not self.experiment_data or not self.experiment_runner:
+            messagebox.showerror("Error", "Cannot reconstitute models: Missing experiment data or runner.", parent=self.popup)
+            return
+        
+        try:
+            # Extract dataset ID from the experiment data
+            dataset_id = self.experiment_data.get('dataset_name')
+            if not dataset_id:
+                messagebox.showerror("Error", "Cannot find dataset ID for reconstitution.", parent=self.popup)
+                return
+            
+            # Show confirmation dialog
+            result = messagebox.askyesno(
+                "Reconstitute Models", 
+                f"This will reconstitute the multiclass model from the best dichotomy configurations.\n\n"
+                f"Dataset: {dataset_id}\n"
+                f"Strategy: {self.experiment_data.get('strategy', 'Unknown')}\n"
+                f"Dichotomies: {len(self.experiment_data.get('metrics', {}))}\n\n"
+                f"This process may take several minutes. Continue?",
+                parent=self.popup
+            )
+            
+            if result:
+                # Start the reconstitution process in the background
+                self._start_reconstitution_process(dataset_id)
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start reconstitution: {str(e)}", parent=self.popup)
+
+    def _start_reconstitution_process(self, dataset_id):
+        """Start the reconstitution process with loading UI"""
+        import threading
+        
+        # Change button to loading state
+        self.reconstitute_btn.config(
+            text="Reconstituting... ⟳", 
+            state="disabled", 
+            bg="#FFA000"
+        )
+        
+        # Set cursor on the popup window instead
+        try:
+            self.popup.config(cursor="watch")
+        except:
+            # Fallback if cursor fails
+            pass
+        
+        # Show loading dialog
+        self._create_loading_dialog()
+        
+        # Start reconstitution in background thread
+        def reconstitution_worker():
+            try:
+                reconstitution_result = self.experiment_runner.reconstitute_multiclass_models(dataset_id)
+                
+                # Schedule UI update on main thread
+                self.popup.after(100, lambda: self._on_reconstitution_complete(reconstitution_result, dataset_id))
+                
+            except Exception as e:
+                # Schedule error handling on main thread
+                self.popup.after(100, lambda: self._on_reconstitution_error(str(e)))
+        
+        # Start background thread
+        thread = threading.Thread(target=reconstitution_worker, daemon=True)
+        thread.start()
+
+    def _create_loading_dialog(self):
+        """Create a loading dialog with progress animation"""
+        self.loading_window = Toplevel(self.popup)
+        self.loading_window.title("Processing")
+        self.loading_window.geometry("450x280")
+        self.loading_window.resizable(False, False)
+        self.loading_window.configure(bg="#f8f9fa")
+        
+        # Center the loading window
+        self.loading_window.transient(self.popup)
+        self.loading_window.grab_set()
+        
+        # Loading content
+        content_frame = Frame(self.loading_window, bg="#f8f9fa")
+        content_frame.pack(expand=True, fill="both", padx=30, pady=30)
+        
+        # Animated loading text
+        self.loading_label = Label(content_frame, 
+                                  text="Reconstituting multiclass models...", 
+                                  font=("Segoe UI", 14),
+                                  bg="#f8f9fa", fg="#333333")
+        self.loading_label.pack(pady=(20, 10))
+        
+        # Progress steps
+        steps_frame = Frame(content_frame, bg="#f8f9fa")
+        steps_frame.pack(pady=10)
+        
+        self.step_labels = []
+        steps = [
+            "Loading experiment configuration",
+            "Training optimized models", 
+            "Running multiple simulations",
+            "Calculating performance metrics",
+            "Generating report"
+        ]
+        
+        for i, step in enumerate(steps):
+            label = Label(steps_frame, text=f"• {step}", 
+                         font=("Segoe UI", 10), 
+                         bg="#f8f9fa", fg="#666666",
+                         anchor="w")
+            label.pack(fill="x", pady=2)
+            self.step_labels.append(label)
+        
+        # Start animation
+        self._animate_loading()
+
+    def _animate_loading(self):
+        """Animate the loading text"""
+        if hasattr(self, 'loading_window') and self.loading_window.winfo_exists():
+            current_text = self.loading_label.cget("text")
+            if current_text.endswith("..."):
+                new_text = current_text[:-3] + "."
+            elif current_text.endswith(".."):
+                new_text = current_text + "."
+            elif current_text.endswith("."):
+                new_text = current_text + "."
+            else:
+                new_text = current_text + "."
+            
+            self.loading_label.config(text=new_text)
+            
+            # Continue animation
+            self.popup.after(500, self._animate_loading)
+
+    def _on_reconstitution_complete(self, result, dataset_id):
+        """Handle successful reconstitution completion"""
+        # Close loading dialog
+        if hasattr(self, 'loading_window'):
+            self.loading_window.destroy()
+        
+        # Reset button and cursor
+        self.reconstitute_btn.config(
+            text="Reconstitute Models", 
+            state="normal", 
+            bg="#FFC107"
+        )
+        
+        # Reset cursor
+        try:
+            self.popup.config(cursor="")
+        except:
+            pass
+        
+        if result.get('success', False):
+            # Show success message and offer to view results
+            msg_result = messagebox.askyesno(
+                "Reconstitution Complete",
+                f"Model reconstitution completed successfully!\n\n"
+                f"{result.get('message', '')}\n\n"
+                f"Would you like to view the detailed reconstitution report?",
+                parent=self.popup
+            )
+            
+            if msg_result:
+                # Generate and show reconstitution PDF report
+                self._generate_reconstitution_report(dataset_id, result.get('results', {}))
+                
+        else:
+            messagebox.showerror("Error", 
+                                f"Reconstitution failed:\n{result.get('message', 'Unknown error')}", 
+                                parent=self.popup)
+
+    def _on_reconstitution_error(self, error_message):
+        """Handle reconstitution error"""
+        # Close loading dialog
+        if hasattr(self, 'loading_window'):
+            self.loading_window.destroy()
+        
+        # Reset button and cursor
+        self.reconstitute_btn.config(
+            text="Reconstitute Models", 
+            state="normal", 
+            bg="#FFC107"
+        )
+        
+        # Reset cursor
+        try:
+            self.popup.config(cursor="")
+        except:
+            pass
+        
+        messagebox.showerror("Error", f"Reconstitution failed: {error_message}", parent=self.popup)
+
+    def _generate_reconstitution_report(self, dataset_id, results):
+        """Generate a specialized PDF report for reconstitution results"""
+        try:
+            from report_generation.multiclass_report_generator import MulticlassReportGenerator
+            
+            # Generate the multiclass reconstitution report
+            report_generator = MulticlassReportGenerator(dataset_id, results)
+            pdf_path = report_generator.generate_report()
+            
+            # Show the reconstitution report in a new popup
+            if pdf_path and os.path.exists(pdf_path):
+                reconstitution_popup = PDFPreviewPopup(
+                    self.popup, 
+                    pdf_path, 
+                    title=f"Multiclass Reconstitution Report - {dataset_id}",
+                    experiment_data=None,  # No reconstitute button for reconstitution reports
+                    experiment_runner=None
+                )
+            else:
+                messagebox.showerror("Error", "Failed to generate reconstitution report", parent=self.popup)
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to generate report: {str(e)}", parent=self.popup)
 
 def parse_experiment_folder(experiment_folder):
     """Parse experiment folder to extract data for report generation"""
@@ -255,7 +481,7 @@ def parse_experiment_folder(experiment_folder):
     }
 
 
-def show_report_popup(experiment_path: str, language: str = "en", parent=None) -> None:
+def show_report_popup(experiment_path: str, language: str = "en", parent=None, experiment_runner=None) -> None:
     """Generate the PDF report and show a preview popup within this project."""
     import tkinter as tk
     try:
@@ -288,7 +514,7 @@ def show_report_popup(experiment_path: str, language: str = "en", parent=None) -
     def _save(file_path: str):
         pdf_generator.save_pdf(file_path)
 
-    PDFPreviewPopup(root, temp_pdf_path, save_callback=_save)
+    PDFPreviewPopup(root, temp_pdf_path, save_callback=_save, experiment_data=experiment_data, experiment_runner=experiment_runner)
 
     if created_root:
         try:

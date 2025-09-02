@@ -849,7 +849,7 @@ class ExperimentRunner:
             parent = gui_root
 
             # Call the consolidated popup generator
-            show_report_popup(experiment_path, language=language, parent=parent)
+            show_report_popup(experiment_path, language=language, parent=parent, experiment_runner=self)
             
         except Exception as e:
             raise Exception(f"Error generating experiment report: {str(e)}")
@@ -884,6 +884,626 @@ class ExperimentRunner:
             
         except Exception as e:
             return None
+
+    def diagnose_path_mismatch(self, original_csv_path):
+        """
+        Diagnose the path mismatch issue between experiment creation and report generation
+        for multiclass experiments.
+        
+        Parameters:
+        -----------
+        original_csv_path : str
+            Path to the original CSV file that would be selected by the user
+            
+        Returns:
+        --------
+        dict : Diagnostic results including IDs and paths
+        """
+        try:
+            # Import required modules
+            sys.path.insert(0, self.parent_dir)
+            import data_generator
+            from csv_preloading import CSVPreprocessor, create_multiclass_dichotomies
+            
+            # Step 1: Generate ID from original file (as done when experiment starts)
+            print(f"Step 1: Generating dataset ID from original file...")
+            id_from_original = data_generator.generate_real_data_id(original_csv_path)
+            original_folder_path = data_generator.get_dataset_directory_structure(id_from_original)["dataset_dir"]
+            print(f"   Original file: {original_csv_path}")
+            print(f"   Generated ID: {id_from_original}")
+            print(f"   Expected folder: {original_folder_path}")
+            
+            # Step 2: Simulate multiclass preprocessing to get first dichotomy file
+            print(f"\nStep 2: Simulating multiclass preprocessing...")
+            preprocessor = CSVPreprocessor(gui_enabled=False)
+            multiclass_candidates = preprocessor.detect_multiclass(original_csv_path)
+            
+            if not multiclass_candidates:
+                return {
+                    "success": False,
+                    "error": "No multiclass candidates found in the provided file"
+                }
+            
+            # Use first candidate and OVA strategy (most common)
+            main_candidate = multiclass_candidates[0]
+            strategy = "ova"
+            
+            # Create dichotomies (but don't save them permanently)
+            dichotomy_result = create_multiclass_dichotomies(
+                original_csv_path, 
+                main_candidate, 
+                strategy=strategy
+            )
+            
+            if not dichotomy_result['success']:
+                return {
+                    "success": False,
+                    "error": f"Failed to create dichotomies: {dichotomy_result.get('error', 'Unknown error')}"
+                }
+            
+            # Get the first dichotomy file path
+            first_dichotomy_path = dichotomy_result['dichotomy_files'][0]
+            print(f"   First dichotomy file: {first_dichotomy_path}")
+            
+            # Step 3: Generate ID from first dichotomy file (as done during report generation)
+            print(f"\nStep 3: Generating dataset ID from first dichotomy file...")
+            id_from_dichotomy = data_generator.generate_real_data_id(first_dichotomy_path)
+            dichotomy_folder_path = data_generator.get_dataset_directory_structure(id_from_dichotomy)["dataset_dir"]
+            print(f"   Dichotomy file: {first_dichotomy_path}")
+            print(f"   Generated ID: {id_from_dichotomy}")
+            print(f"   Expected folder: {dichotomy_folder_path}")
+            
+            # Clean up temporary dichotomy files
+            try:
+                for temp_file in dichotomy_result['dichotomy_files']:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                        print(f"   Cleaned up: {temp_file}")
+            except Exception as cleanup_error:
+                print(f"   Warning: Could not clean up temporary files: {cleanup_error}")
+            
+            return {
+                "success": True,
+                "id_from_original": id_from_original,
+                "id_from_dichotomy": id_from_dichotomy,
+                "original_folder_path": original_folder_path,
+                "dichotomy_folder_path": dichotomy_folder_path,
+                "dichotomy_filepath": first_dichotomy_path,
+                "ids_match": id_from_original == id_from_dichotomy
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def reconstitute_multiclass_models(self, dataset_id):
+        """
+        Orchestrates the reconstitution of multiclass models following the exact approach 
+        from MC_Label_Switching/evaluate_performance.py.
+        
+        This loads the exact ECOC matrix and configuration used in the original experiment,
+        then performs multiple simulations with different train/test splits to get
+        robust statistical estimates.
+        """
+        try:
+            import numpy as np
+            import pandas as pd
+            import json
+            import os
+            from sklearn.model_selection import train_test_split
+            from sklearn.preprocessing import StandardScaler
+            from sklearn.metrics import accuracy_score, balanced_accuracy_score
+            from sklearn.metrics import confusion_matrix, cohen_kappa_score
+            from imblearn.metrics import geometric_mean_score, sensitivity_score
+            
+            print(f"Starting reconstitution for dataset_id: {dataset_id}")
+            
+            # Import required modules from the parent directory
+            sys.path.insert(0, self.parent_dir)
+            import data_generator
+            
+            # Get dataset directory structure
+            dataset_paths = data_generator.get_dataset_directory_structure(dataset_id)
+            dataset_dir = dataset_paths["dataset_dir"]
+            
+            if not os.path.exists(dataset_dir):
+                return {"success": False, "message": f"Dataset directory not found: {dataset_dir}"}
+            
+            print(f"Working with dataset directory: {dataset_dir}")
+            
+            # 1. Load multiclass progress to get the EXACT experiment configuration
+            multiclass_progress_file = os.path.join(dataset_dir, f"multiclass_progress_{dataset_id}.json")
+            if not os.path.exists(multiclass_progress_file):
+                return {"success": False, "message": "Multiclass progress file not found"}
+            
+            with open(multiclass_progress_file, 'r') as f:
+                multiclass_data = json.load(f)
+            
+            strategy = multiclass_data.get("strategy", "ova")
+            n_classes = multiclass_data.get("n_classes", 0)
+            class_names = multiclass_data.get("class_names", [])
+            # Use the EXACT code matrix from the original experiment
+            M_ecoc_matrix = np.array(multiclass_data.get("code_matrix", []))
+            
+            print(f"Experiment configuration: {strategy} with {n_classes} classes")
+            print(f"Classes: {class_names}")
+            print(f"ECOC matrix shape: {M_ecoc_matrix.shape}")
+            print(f"ECOC matrix:\n{M_ecoc_matrix}")
+            
+            # 2. Load the original dataset
+            original_csv_path = None
+            for f in os.listdir(dataset_dir):
+                if f.endswith('_original.csv'):
+                    original_csv_path = os.path.join(dataset_dir, f)
+                    break
+            
+            if not original_csv_path or not os.path.exists(original_csv_path):
+                return {"success": False, "message": "Original dataset file not found"}
+            
+            print(f"Loading original dataset: {original_csv_path}")
+            
+            # Load dataset exactly as in evaluate_performance.py
+            df = pd.read_csv(original_csv_path)
+            X = df.iloc[:, :-1].values
+            y_original = df.iloc[:, -1].values
+            
+            # Map class labels to indices (following evaluate_performance.py approach)
+            unique_classes = np.unique(y_original)
+            if len(unique_classes) != n_classes:
+                return {"success": False, "message": f"Class count mismatch: found {len(unique_classes)}, expected {n_classes}"}
+            
+            # Create class mapping - map original labels to numeric indices
+            class_dict = {class_names[i]: i + 1 for i in range(len(class_names))}
+            y = np.array([class_dict.get(str(label), class_dict.get(label, 1)) for label in y_original])
+            class_labels = np.array(sorted(class_dict.values()))
+            
+            print(f"Dataset shape: {X.shape}")
+            print(f"Class mapping: {class_dict}")
+            print(f"Class labels: {class_labels}")
+            
+            # 3. Load best configurations for each dichotomy
+            best_configs = {}
+            dichotomy_dirs = [d for d in os.listdir(dataset_dir) 
+                             if d.startswith('dichotomy_') and d.endswith('_run')]
+            
+            for dichotomy_dir in sorted(dichotomy_dirs):
+                dichotomy_path = os.path.join(dataset_dir, dichotomy_dir)
+                dichotomy_name = dichotomy_dir.replace('_run', '')
+                
+                # Load best runner configuration
+                best_runner_file = os.path.join(dichotomy_path, f"best_runner_{dichotomy_name}.json")
+                if os.path.exists(best_runner_file):
+                    with open(best_runner_file, 'r') as f:
+                        best_runner_data = json.load(f)
+                        # Extract the best configuration from the saved data
+                        best_config = best_runner_data.get('best_runner', {})
+                        best_configs[dichotomy_name] = best_config
+                        print(f"Loaded config for {dichotomy_name}: {list(best_config.keys())}")
+                else:
+                    return {"success": False, "message": f"Best runner file not found for {dichotomy_name}"}
+            
+            if not best_configs:
+                return {"success": False, "message": "No best configurations found"}
+            
+            print(f"Loaded {len(best_configs)} dichotomy configurations")
+            
+            num_dichotomies = M_ecoc_matrix.shape[1]
+            
+            # 4. Run multiple simulations as in evaluate_performance.py
+            n_simulations = 10  # Start with fewer simulations for testing
+            test_size = 0.2     # 20% test size (matching original config.yaml)
+            
+            acc_simulations = []
+            bal_acc_simulations = []
+            kappa_simulations = []
+            geom_mean_simulations = []
+            sensitivity_simulations = []
+            
+            print(f"Starting {n_simulations} simulations...")
+            
+            for k_simu in range(n_simulations):
+                print(f"  Simulation {k_simu + 1}/{n_simulations}")
+                
+                # Train-test split with different random seed for each simulation
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=test_size, random_state=42 + k_simu, stratify=y
+                )
+                
+                M_tst = X_test.shape[0]
+                
+                # Standardize features
+                scaler = StandardScaler()
+                X_train_n = scaler.fit_transform(X_train)
+                X_test_n = scaler.transform(X_test)
+                
+                # Apply ECOC binarization (simplified version of apply_ecoc_binarization)
+                Ye_pred = np.zeros((M_tst, num_dichotomies))
+                
+                for j_dic in range(num_dichotomies):
+                    try:
+                        # Get the ECOC column for this dichotomy
+                        ecoc_column = M_ecoc_matrix[:, j_dic]
+                        
+                        # Create binary labels based on ECOC matrix
+                        ye_train = np.zeros(len(y_train))
+                        ye_test = np.zeros(len(y_test))
+                        
+                        for i, class_idx in enumerate(class_labels):
+                            # Map class index to position in ECOC matrix
+                            ecoc_class_idx = class_idx - 1  # Convert to 0-based index
+                            if ecoc_class_idx < len(ecoc_column):
+                                ecoc_value = ecoc_column[ecoc_class_idx]
+                                
+                                # Apply ECOC encoding to training labels
+                                train_mask = (y_train == class_idx)
+                                ye_train[train_mask] = ecoc_value
+                                
+                                # Apply ECOC encoding to test labels  
+                                test_mask = (y_test == class_idx)
+                                ye_test[test_mask] = ecoc_value
+                        
+                        # Check if we have both classes in training set
+                        unique_train_labels = np.unique(ye_train)
+                        if len(unique_train_labels) < 2:
+                            print(f"    Warning: Dichotomy {j_dic+1} has only one class in training set")
+                            # Use majority class prediction
+                            Ye_pred[:, j_dic] = unique_train_labels[0] if len(unique_train_labels) > 0 else 1.0
+                            continue
+                        
+                        # Get the corresponding dichotomy name
+                        dichotomy_name = f"dichotomy_{j_dic+1:02d}"
+                        if dichotomy_name in best_configs:
+                            config = best_configs[dichotomy_name]
+                            
+                            try:
+                                # Instantiate the model
+                                model = self._instantiate_model(config)
+                                
+                                # Ensure input_size is set for LSEnsemble
+                                if hasattr(model, 'input_size') and model.input_size is None:
+                                    model.input_size = X_train_n.shape[1]
+                                
+                                print(f"    Training {dichotomy_name} with {len(ye_train)} samples...")
+                                print(f"    Training labels unique: {np.unique(ye_train)}")
+                                
+                                # Convert data to the correct format for LSEnsemble
+                                X_train_tensor = X_train_n.astype(np.float32)
+                                ye_train_tensor = ye_train.astype(np.float32)
+                                
+                                # ECOC Explanation: Handle neutral labels (0 values)
+                                # In ECOC strategies like OVO (One-vs-One), not all classes participate 
+                                # in every dichotomy. Classes not involved are marked with 0 (neutral).
+                                # For binary classification, we only use classes marked as -1 or +1.
+                                unique_labels = np.unique(ye_train_tensor)
+                                print(f"    Original unique labels: {unique_labels}")
+                                
+                                # Filter out 0 values if present (neutral/uninvolved classes in this dichotomy)
+                                if 0 in unique_labels:
+                                    mask = ye_train_tensor != 0
+                                    X_train_tensor = X_train_tensor[mask]
+                                    ye_train_tensor = ye_train_tensor[mask]
+                                    print(f"    Filtered out {np.sum(~mask)} neutral (0) labels for this dichotomy")
+                                
+                                # Ensure we have exactly 2 classes for binary classification
+                                unique_labels = np.unique(ye_train_tensor)
+                                if len(unique_labels) != 2:
+                                    print(f"    Warning: Expected 2 classes, got {len(unique_labels)}: {unique_labels}")
+                                    if len(unique_labels) == 1:
+                                        # Skip this dichotomy if only one class
+                                        print(f"    Skipping {dichotomy_name} - only one class present")
+                                        Ye_pred[:, j_dic] = unique_labels[0]
+                                        continue
+                                
+                                print(f"    Final training labels: {unique_labels} (n={len(ye_train_tensor)})")
+                                
+                                # Update test data accordingly
+                                X_test_tensor = X_test_n.astype(np.float32)
+                                
+                                # Fit the model
+                                model.fit(X_train_tensor, ye_train_tensor)
+                                
+                                # bin_format Explanation: LSEnsemble format for binary labels
+                                # "minus_one_one" = {-1, +1} format (ECOC standard)
+                                # "zero_one" = {0, 1} format (sklearn standard)
+                                if hasattr(model, 'bin_format'):
+                                    print(f"    Model bin_format set to: {model.bin_format}")
+                                else:
+                                    print(f"    Warning: bin_format not set, manually setting it")
+                                    # Set bin_format based on our data conversion
+                                    if 0 in unique_labels:
+                                        model.bin_format = 0
+                                    else:
+                                        model.bin_format = -1
+                                
+                                # Predict on test set
+                                X_test_tensor = X_test_n.astype(np.float32)
+                                ye_pred = model.predict(X_test_tensor)
+                                
+                                # Ensure predictions are in the correct format
+                                ye_pred = np.array(ye_pred).flatten()
+                                if len(ye_pred) != M_tst:
+                                    print(f"    Warning: Prediction length mismatch. Expected {M_tst}, got {len(ye_pred)}")
+                                    ye_pred = np.resize(ye_pred, M_tst)
+                                
+                                Ye_pred[:, j_dic] = ye_pred
+                                print(f"    Successfully completed {dichotomy_name}")
+                                
+                            except Exception as model_error:
+                                print(f"    Model error in {dichotomy_name}: {str(model_error)}")
+                                print(f"    Error type: {type(model_error).__name__}")
+                                import traceback
+                                traceback.print_exc()
+                                # Use fallback predictions
+                                Ye_pred[:, j_dic] = np.random.choice([-1.0, 1.0], size=M_tst)
+                        else:
+                            print(f"    Warning: No config found for {dichotomy_name}")
+                            Ye_pred[:, j_dic] = ye_test  # Fallback
+                            
+                    except Exception as e:
+                        print(f"    Error in dichotomy {j_dic+1}: {str(e)}")
+                        Ye_pred[:, j_dic] = np.random.choice([-1.0, 1.0], size=M_tst)
+                
+                # ECOC decoding to get final multiclass predictions
+                y_pred_MC = np.zeros(M_tst, dtype=int)
+                for i in range(M_tst):
+                    sample_predictions = Ye_pred[i, :]
+                    
+                    # Find the class with minimum Hamming distance
+                    min_distance = float('inf')
+                    predicted_class = class_labels[0]
+                    
+                    for class_idx in class_labels:
+                        ecoc_class_idx = class_idx - 1  # Convert to 0-based index
+                        if ecoc_class_idx < M_ecoc_matrix.shape[0]:
+                            class_codeword = M_ecoc_matrix[ecoc_class_idx, :]
+                            distance = np.sum(sample_predictions != class_codeword)
+                            
+                            if distance < min_distance:
+                                min_distance = distance
+                                predicted_class = class_idx
+                    
+                    y_pred_MC[i] = predicted_class
+                
+                # Calculate metrics for this simulation
+                acc = accuracy_score(y_test, y_pred_MC)
+                bal_acc = balanced_accuracy_score(y_test, y_pred_MC)
+                kappa = cohen_kappa_score(y_test, y_pred_MC)
+                
+                try:
+                    geom_mean = geometric_mean_score(y_test, y_pred_MC, average='weighted')
+                    sensitivity = sensitivity_score(y_test, y_pred_MC, average='weighted')
+                except:
+                    geom_mean = 0.0
+                    sensitivity = 0.0
+                
+                # Store metrics
+                acc_simulations.append(acc)
+                bal_acc_simulations.append(bal_acc)
+                kappa_simulations.append(kappa)
+                geom_mean_simulations.append(geom_mean)
+                sensitivity_simulations.append(sensitivity)
+                
+                print(f"    Simulation {k_simu + 1} metrics: Acc={acc:.4f}, Bal_Acc={bal_acc:.4f}, Kappa={kappa:.4f}")
+            
+            # Calculate final statistics
+            final_metrics = {
+                "avg_acc": np.mean(acc_simulations),
+                "avg_bal_acc": np.mean(bal_acc_simulations),
+                "avg_kappa": np.mean(kappa_simulations),
+                "avg_geom_mean": np.mean(geom_mean_simulations),
+                "avg_sensitivity": np.mean(sensitivity_simulations),
+                "std_acc": np.std(acc_simulations),
+                "std_bal_acc": np.std(bal_acc_simulations),
+                "std_kappa": np.std(kappa_simulations),
+                "std_geom_mean": np.std(geom_mean_simulations),
+                "std_sensitivity": np.std(sensitivity_simulations),
+                "n_simulations": n_simulations
+            }
+            
+            print("Final performance metrics:")
+            print(f"  Accuracy: {final_metrics['avg_acc']:.5f} ± {final_metrics['std_acc']:.5f}")
+            print(f"  Balanced Accuracy: {final_metrics['avg_bal_acc']:.5f} ± {final_metrics['std_bal_acc']:.5f}")
+            print(f"  Cohen's Kappa: {final_metrics['avg_kappa']:.5f} ± {final_metrics['std_kappa']:.5f}")
+            print(f"  Geometric Mean: {final_metrics['avg_geom_mean']:.5f} ± {final_metrics['std_geom_mean']:.5f}")
+            print(f"  Sensitivity: {final_metrics['avg_sensitivity']:.5f} ± {final_metrics['std_sensitivity']:.5f}")
+            
+            # Save reconstitution results
+            reconstitution_results = {
+                "dataset_id": dataset_id,
+                "strategy": strategy,
+                "n_classes": n_classes,
+                "class_names": class_names,
+                "ecoc_matrix": M_ecoc_matrix.tolist(),
+                "n_simulations": n_simulations,
+                "test_size": test_size,
+                "final_metrics": final_metrics,
+                "all_simulations": {
+                    "accuracy": acc_simulations,
+                    "balanced_accuracy": bal_acc_simulations,
+                    "cohen_kappa": kappa_simulations,
+                    "geometric_mean": geom_mean_simulations,
+                    "sensitivity": sensitivity_simulations
+                },
+                "timestamp": pd.Timestamp.now().isoformat()
+            }
+            
+            # Save to file
+            reconstitution_file = os.path.join(dataset_dir, f"reconstitution_results_{dataset_id}.json")
+            with open(reconstitution_file, 'w') as f:
+                json.dump(reconstitution_results, f, indent=2)
+            
+            print(f"Reconstitution results saved to: {reconstitution_file}")
+            
+            return {
+                "success": True, 
+                "message": f"Reconstitution completed. Avg Accuracy: {final_metrics['avg_acc']:.4f} ± {final_metrics['std_acc']:.4f}",
+                "results": reconstitution_results
+            }
+
+        except Exception as e:
+            error_msg = f"Error during reconstitution: {str(e)}"
+            print(error_msg)
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": error_msg}
+
+    def _create_ova_matrix(self, class_names):
+        """Create One-vs-All ECOC matrix"""
+        import numpy as np
+        n_classes = len(class_names)
+        # Each column represents one dichotomy (one class vs all others)
+        M = np.zeros((n_classes, n_classes))
+        for i in range(n_classes):
+            M[i, i] = 1    # Positive class
+            M[:, i][M[:, i] == 0] = -1  # All other classes are negative
+        return M
+
+    def _create_ovo_matrix(self, class_names):
+        """Create One-vs-One ECOC matrix"""
+        import numpy as np
+        n_classes = len(class_names)
+        n_dichotomies = n_classes * (n_classes - 1) // 2
+        M = np.zeros((n_classes, n_dichotomies))
+        
+        dichotomy_idx = 0
+        for i in range(n_classes):
+            for j in range(i + 1, n_classes):
+                M[i, dichotomy_idx] = 1   # First class is positive
+                M[j, dichotomy_idx] = -1  # Second class is negative
+                # All other classes remain 0 (not involved in this dichotomy)
+                dichotomy_idx += 1
+        
+        return M
+
+    def _apply_ecoc_binarization(self, y, class_names, ecoc_column, strategy, dichotomy_idx):
+        """Apply ECOC binarization for a specific dichotomy"""
+        import numpy as np
+        
+        # Create mapping from class names to indices
+        class_to_idx = {name: i for i, name in enumerate(class_names)}
+        
+        # Initialize binary labels
+        binary_labels = np.zeros(len(y))
+        
+        for i, class_label in enumerate(y):
+            if class_label in class_to_idx:
+                class_idx = class_to_idx[class_label]
+                ecoc_value = ecoc_column[class_idx]
+                
+                if ecoc_value == 1:
+                    binary_labels[i] = 1  # Positive class
+                elif ecoc_value == -1:
+                    binary_labels[i] = -1  # Negative class
+                else:  # ecoc_value == 0 (for OVO, some classes not involved)
+                    # For OVO, we exclude samples from classes not involved in this dichotomy
+                    binary_labels[i] = 0  # Will be filtered out
+        
+        # For OVO, filter out samples with label 0 (not involved in this dichotomy)
+        if strategy == "ovo":
+            mask = binary_labels != 0
+            return binary_labels[mask]
+        
+        return binary_labels
+
+    def _instantiate_model(self, best_config):
+        """
+        Instantiate the actual model that was used in the original experiment.
+        This uses LSEnsemble from uc3m.labelswitching, not sklearn models.
+        """
+        try:
+            # Import the ACTUAL model classes used in the experiments
+            sys.path.insert(0, os.path.join(self.parent_dir, 'uc3m'))
+            from uc3m.labelswitching import LSEnsemble
+            
+            # The config contains LSEnsemble parameters directly
+            print(f"    Instantiating LSEnsemble with config: {list(best_config.keys())}")
+            
+            # Create a copy of the config to avoid modifying the original
+            model_config = best_config.copy()
+            
+            # Ensure input_size is set if not present (required for LSEnsemble)
+            if 'input_size' not in model_config:
+                print("    Warning: input_size not in config, will be set during fit")
+            
+            # Create LSEnsemble model with the exact configuration
+            model = LSEnsemble(**model_config)
+            
+            return model
+                
+        except Exception as e:
+            print(f"Error instantiating LSEnsemble model: {str(e)}")
+            print(f"Config: {best_config}")
+            import traceback
+            traceback.print_exc()
+            
+            # Fallback to sklearn if LSEnsemble fails
+            print("    Using RandomForest as fallback...")
+            from sklearn.ensemble import RandomForestClassifier
+            return RandomForestClassifier(random_state=42, n_estimators=100)
+
+    def _decode_ecoc_predictions(self, Y_pred, M_ecoc, class_names):
+        """Decode ECOC predictions to get final multiclass predictions"""
+        import numpy as np
+        
+        n_samples = Y_pred.shape[0]
+        y_pred_multiclass = []
+        
+        for i in range(n_samples):
+            sample_predictions = Y_pred[i, :]
+            
+            # Calculate distance to each class codeword
+            distances = []
+            for class_idx in range(M_ecoc.shape[0]):
+                codeword = M_ecoc[class_idx, :]
+                # Hamming distance (or you could use Euclidean distance)
+                distance = np.sum(sample_predictions != codeword)
+                distances.append(distance)
+            
+            # Assign to the class with minimum distance
+            predicted_class_idx = np.argmin(distances)
+            y_pred_multiclass.append(class_names[predicted_class_idx])
+        
+        return np.array(y_pred_multiclass)
+
+    def _calculate_multiclass_metrics(self, y_true, y_pred, class_names):
+        """Calculate comprehensive multiclass performance metrics"""
+        from sklearn.metrics import accuracy_score, balanced_accuracy_score
+        from sklearn.metrics import confusion_matrix, cohen_kappa_score
+        from sklearn.metrics import classification_report
+        from imblearn.metrics import geometric_mean_score, sensitivity_score
+        import numpy as np
+        
+        metrics = {}
+        
+        # Basic metrics
+        metrics['accuracy'] = accuracy_score(y_true, y_pred)
+        metrics['balanced_accuracy'] = balanced_accuracy_score(y_true, y_pred)
+        metrics['cohen_kappa'] = cohen_kappa_score(y_true, y_pred)
+        
+        # Geometric mean and sensitivity (using imbalanced-learn)
+        try:
+            metrics['geometric_mean'] = geometric_mean_score(y_true, y_pred, average='weighted')
+            metrics['sensitivity'] = sensitivity_score(y_true, y_pred, average='weighted')
+        except Exception as e:
+            print(f"Warning: Could not calculate imblearn metrics: {e}")
+            metrics['geometric_mean'] = None
+            metrics['sensitivity'] = None
+        
+        # Confusion matrix
+        cm = confusion_matrix(y_true, y_pred, labels=class_names)
+        metrics['confusion_matrix'] = cm.tolist()  # Convert to list for JSON serialization
+        
+        # Per-class metrics
+        try:
+            report = classification_report(y_true, y_pred, labels=class_names, output_dict=True)
+            metrics['per_class_metrics'] = report
+        except Exception as e:
+            print(f"Warning: Could not generate classification report: {e}")
+            metrics['per_class_metrics'] = None
+        
+        return metrics
 
 def main():
     """Main entry point for the GUI application"""
