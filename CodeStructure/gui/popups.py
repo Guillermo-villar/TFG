@@ -615,9 +615,9 @@ class PopupManager:
         
         # Resume message
         if overall_status == "complete":
-            message = self.texts["multiclass_study_complete_message"]
+            message = self.texts["multiclass_complete_message"]
         else:
-            message = self.texts["multiclass_resume_message"]
+            message = self.texts["multiclass_continue_message"]
         
         message_label = ttk.Label(main_frame, text=message, font=('Arial', 10), 
                                  wraplength=600, justify='center')

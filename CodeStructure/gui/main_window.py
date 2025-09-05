@@ -643,10 +643,15 @@ class MLExperimentGUI:
                 
                 else:
                     # NOT MULTICLASS: Standard binary processing flow
-                    # Get the directory for the original file's hash
+                    # Get the directory for the original file's hash and set up proper structure
                     dataset_id = self.experiment_runner.get_dataset_id(self.original_csv_path)
-                    dataset_paths = self.experiment_runner.get_dataset_paths(dataset_id)
-                    output_dir = dataset_paths["dataset_dir"]
+                    
+                    # Import data_generator to set up proper dataset structure
+                    from model import data_generator
+                    
+                    # Set up the complete dataset structure (this creates directories and copies files)
+                    data_info = data_generator.setup_real_dataset_structure(self.original_csv_path)
+                    output_dir = data_info["dataset_dir"]
 
                     # Create processed filename
                     base_name = os.path.splitext(os.path.basename(filepath))[0]
@@ -1232,8 +1237,9 @@ class MLExperimentGUI:
             if self.industry_csv_path:
                 csv_path = self.industry_csv_path
                 csv_source_type = "industry"
-            elif self.user_csv_path:
-                csv_path = self.user_csv_path  
+            elif self.original_csv_path:
+                # IMPORTANT: Always use the original file path for consistent dataset ID generation
+                csv_path = self.original_csv_path  
                 csv_source_type = "manual"
         
         # Validate that user has selected a file when using real data

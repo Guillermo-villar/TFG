@@ -192,7 +192,10 @@ def setup_real_dataset_structure(file_path, base_datasets_dir=None):
     ensure_dir_exists(os.path.join(paths["dataset_dir"], "file.tmp"))
     
     # Define paths for original and processed datasets
-    original_dst_path = paths["original_csv"]
+    # For the original file, use the original filename but add _original suffix
+    original_basename = os.path.splitext(os.path.basename(file_path))[0]  # Get filename without extension
+    original_filename = f"{original_basename}_original.csv"
+    original_dst_path = os.path.join(paths["dataset_dir"], original_filename)
     processed_dst_path = paths["processed_csv"] 
 
     # Copy the original file for reference, if it doesn't exist
