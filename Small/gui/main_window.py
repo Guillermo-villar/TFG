@@ -18,7 +18,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from gui.popups import PopupManager
-from csv_preloading import CSVPreprocessor, create_multiclass_dichotomies
+from model.csv_preloading import CSVPreprocessor, create_multiclass_dichotomies
 
 
 class MLExperimentGUI:
@@ -1242,7 +1242,9 @@ class MLExperimentGUI:
         # Check dataset status before starting
         try:
             current_level = self.level_var.get()
-            dataset_status = self.experiment_runner.get_dataset_status(data_source, csv_path, current_level)
+            # Use original CSV path for consistent dataset ID generation
+            original_csv_path = self.get_dataset_id_csv_path()
+            dataset_status = self.experiment_runner.get_dataset_status(data_source, original_csv_path, current_level)
             
             # Show appropriate popup based on dataset status
             if not self.popup_manager.show_dataset_status_popup(dataset_status):
@@ -1909,8 +1911,11 @@ class MLExperimentGUI:
             return
         
         try:
-            # Call the deletion method from experiment runner
-            result = self.experiment_runner.delete_dataset_progress(data_source, csv_path)
+            # Use get_dataset_id_csv_path() to ensure we get the original CSV path for consistent hashing
+            original_csv_path = self.get_dataset_id_csv_path()
+            
+            # Call the deletion method from experiment runner using the original CSV path
+            result = self.experiment_runner.delete_dataset_progress(data_source, original_csv_path)
             
             if result.get("success", False):
                 # Show success message
@@ -1966,25 +1971,31 @@ class MLExperimentGUI:
     def update_progress_display(self):
         """Update the progress bar and detail information"""
         try:
+            # Get current dataset status with timing information
             data_source = self.data_source_var.get()
-            csv_path = self.get_current_csv_path()
+            # Use original CSV path for consistent dataset ID generation
+            original_csv_path = self.get_dataset_id_csv_path()
             current_level = self.level_var.get()
             
-            # Directly fetch the status for the current dataset configuration
-            progress_info = self.experiment_runner.get_dataset_status(data_source, csv_path, current_level)
+            progress_info = self.experiment_runner.get_dataset_status(data_source, original_csv_path, current_level)
             
-            # If there's any valid progress info (binary or multiclass), update the widgets
-            if progress_info and progress_info.get("status") in ["existing", "new"]:
+            if progress_info and progress_info.get("status") == "existing":
                 self.current_progress_info = progress_info
                 self.update_progress_widgets(progress_info)
-            # If no specific progress, but the experiment is marked as running, show a generic message
-            elif self.is_running:
-                self.progress_detail_var.set("Experiment running, waiting for progress data...")
+            else:
+                # If no existing progress for current dataset, check for any running experiments
+                if self.is_running:
+                    running_info = self.experiment_runner.get_any_running_experiment_status()
+                    if running_info:
+                        self.current_progress_info = running_info
+                        self.update_progress_widgets(running_info)
+                    else:
+                        self.progress_detail_var.set("Experiment running...")
             
         except Exception as e:
             # If progress update fails, show basic running info
             if self.is_running:
-                self.progress_detail_var.set(f"Error updating display: {e}")
+                self.progress_detail_var.set("Experiment running...")
     
     def get_current_csv_path(self, for_report_generation=False):
         """
@@ -2009,84 +2020,204 @@ class MLExperimentGUI:
         
         # Fallback or for synthetic data
         return None
+    
+    def get_dataset_id_csv_path(self):
+        """
+        Get the CSV path that should be used for dataset ID generation.
+        This ensures consistent dataset ID generation across all operations.
+        """
+        data_source = self.data_source_var.get()
+        if data_source == "real":
+            # Always use original path for dataset ID generation
+            return self.get_original_csv_path()
+        return None
+
+    def get_original_csv_path(self):
+        """
+        Get the original CSV path (before any processing) for dataset ID generation.
+        This ensures consistent dataset ID generation across all operations.
+        """
+        data_source = self.data_source_var.get()
+        if data_source == "real":
+            # Always prefer the original path for ID generation
+            if self.original_csv_path:
+                return self.original_csv_path
+            elif self.industry_csv_path:
+                return self.industry_csv_path
+            elif self.user_csv_path:
+                # Fallback to user path if original is not available
+                return self.user_csv_path
+        
+        return None
 
     def update_progress_widgets(self, progress_info):
         """Update progress bar and detail text based on progress information"""
         try:
-            # First, unequivocally check for multiclass and delegate.
-            # This is the most important check.
-            if progress_info.get("experiment_type") == "multiclass":
+            # Check if this is a multiclass experiment
+            experiment_type = progress_info.get("experiment_type", "binary")
+            
+            if experiment_type == "multiclass":
                 self.update_multiclass_progress_widgets(progress_info)
                 return
-
-            # --- Fallback to Binary Classification Logic ---
             
-            # Stage 1 progress
+            # Standard binary classification progress handling
+            # Determine current stage and progress
+            stage1_complete = progress_info.get("stage1_completed", False)
+            current_stage = progress_info.get("current_stage", 1)
+            
+            # Get progress numbers for both stages
             stage1_progress = progress_info.get("stage1_progress", "0/0")
-            stage1_completed = progress_info.get("stage1_completed", False)
-            
-            # Stage 2 progress
             stage2_progress = progress_info.get("stage2_progress", "0/0")
             
-            # Overall status
-            overall_status = progress_info.get("overall_status", "running")
-            experiment_complete = (overall_status == "complete")
-            
-            # Update custom progress bar
-            self.update_custom_progress_bar(stage1_progress, stage2_progress, stage1_completed, experiment_complete)
-            
-            # Update detail text
-            eta_formatted = progress_info.get("eta_formatted", "Calculating...")
-            
-            if experiment_complete:
-                self.progress_detail_var.set(self.texts.get("study_complete_message_short", "Study complete!"))
-            else:
-                if stage1_completed:
-                    # Stage 2 is active
-                    detail_text = f"Stage 2: {stage2_progress} | ETA: {eta_formatted}"
+            # Determine which stage is currently active for progress bar
+            if stage1_complete and current_stage == 2:
+                # Stage 2 is active
+                if "/" in stage2_progress:
+                    current, total = map(int, stage2_progress.split("/"))
                 else:
-                    # Stage 1 is active
-                    detail_text = f"Stage 1: {stage1_progress} | ETA: {eta_formatted}"
+                    current, total = 0, 0
+                stage_name = "Stage 2"
+            else:
+                # Stage 1 is active
+                if "/" in stage1_progress:
+                    current, total = map(int, stage1_progress.split("/"))
+                else:
+                    current, total = 0, 0
+                stage_name = "Stage 1"
+            
+            # Update custom progress bar with both stages
+            self.update_custom_progress_bar(stage1_progress, stage2_progress, stage1_complete, False)
+            
+            # Build detailed status text
+            detail_parts = []
+            
+            # Add stage-specific ETA timing information
+            eta_formatted = progress_info.get("eta_formatted")
+            if eta_formatted and eta_formatted != "Unknown":
+                using_estimate = progress_info.get("using_estimate", False)
+                if using_estimate:
+                    detail_parts.append(f"ETA for {stage_name}: ~{eta_formatted} (estimated)")
+                else:
+                    detail_parts.append(f"ETA for {stage_name}: {eta_formatted}")
+            
+            # Speed information removed as requested
+            
+            avg_time = progress_info.get("avg_time_per_run", 0)
+            if avg_time > 0:
+                using_estimate = progress_info.get("using_estimate", False)
+                if using_estimate:
+                    dataset_size = progress_info.get("dataset_size", 0)
+                    detail_parts.append(f"Est: {avg_time:.1f}s/run (dataset: {dataset_size} rows)")
+                else:
+                    detail_parts.append(f"Avg: {avg_time:.1f}s/run")
+            
+            # Add best metric if available
+            best_metric = progress_info.get("best_metric_so_far")
+            if best_metric and best_metric != "N/A":
+                detail_parts.append(f"Best: {best_metric:.3f}")
+            
+            # Update the detail text
+            detail_text = " • ".join(detail_parts) if detail_parts else "Experiment running..."
+            self.progress_detail_var.set(detail_text)
+            
+            # Update main status to show stage breakdown
+            if self.is_running:
+                # Build status text with stage breakdown
+                if stage1_complete:
+                    # Stage 1 is done, show both stages with emphasis on stage 2
+                    status_text = f"Running Stage 1({stage1_progress}) Stage 2({stage2_progress})"
+                else:
+                    # Stage 1 is still running
+                    status_text = f"Running Stage 1({stage1_progress}) Stage 2({stage2_progress})"
                 
-                self.progress_detail_var.set(detail_text)
-                
+                self.status_var.set(status_text)
+        
         except Exception as e:
-            self.progress_detail_var.set(f"Error updating progress: {e}")
+            # If widget update fails, show basic info
+            self.progress_detail_var.set("Experiment running...")
+            self.update_custom_progress_bar("0/0", "0/0", False, False)
 
     def update_multiclass_progress_widgets(self, progress_info):
-        """Update progress bar and detail text for multiclass experiments"""
+        """Update progress widgets specifically for multiclass experiments"""
         try:
             multiclass_info = progress_info.get("multiclass_info", {})
             
-            # Progress for dichotomies
-            completed = multiclass_info.get("completed_dichotomies", 0)
-            total = multiclass_info.get("total_dichotomies", 0)
-            dichotomy_progress = f"{completed}/{total}"
+            # Extract multiclass-specific progress
+            completed_dichotomies = multiclass_info.get("completed_dichotomies", 0)
+            total_dichotomies = multiclass_info.get("total_dichotomies", 0)
+            in_progress_dichotomies = multiclass_info.get("in_progress_dichotomies", 0)
+            current_dichotomy_index = multiclass_info.get("current_dichotomy_index", 0)
             
-            # Overall status
-            overall_status = progress_info.get("overall_status", "running")
-            experiment_complete = (overall_status == "complete")
+            # Create progress string that matches expected format
+            dichotomy_progress = f"{completed_dichotomies}/{total_dichotomies}"
             
-            # Update custom progress bar
-            # The custom progress bar uses stage1_progress for multiclass dichotomy progress
-            # and expects stage2_progress to be "0/0" to trigger multiclass mode.
-            self.update_custom_progress_bar(dichotomy_progress, "0/0", False, experiment_complete)
+            # For multiclass, we treat dichotomies as "Stage 1" and show no Stage 2
+            stage1_complete = completed_dichotomies >= total_dichotomies
             
-            # Update detail text
-            eta_formatted = progress_info.get("eta_formatted", "Calculating...")
+            # Update custom progress bar - use dichotomy progress as Stage 1, empty Stage 2
+            self.update_custom_progress_bar(dichotomy_progress, "0/0", stage1_complete, stage1_complete)
             
-            if experiment_complete:
-                self.progress_detail_var.set(self.texts["multiclass_complete_message_short"])
-            else:
-                detail_text = self.texts["multiclass_progress_detail"].format(
-                    completed=completed,
-                    total=total,
-                    eta=eta_formatted
-                )
-                self.progress_detail_var.set(detail_text)
+            # Build detailed status text for multiclass
+            detail_parts = []
+            
+            # Add strategy and class information
+            strategy = multiclass_info.get("strategy", "UNKNOWN")
+            n_classes = multiclass_info.get("n_classes", "?")
+            detail_parts.append(f"{strategy} • {n_classes} classes")
+            
+            # Add ETA timing information
+            eta_formatted = progress_info.get("eta_formatted")
+            if eta_formatted and eta_formatted != "Unknown":
+                using_estimate = progress_info.get("using_estimate", False)
+                if using_estimate:
+                    detail_parts.append(f"ETA: ~{eta_formatted} (estimated)")
+                else:
+                    detail_parts.append(f"ETA: {eta_formatted}")
+            
+            # Add timing information for dichotomies
+            avg_time = progress_info.get("avg_time_per_run", 0)
+            if avg_time > 0:
+                using_estimate = progress_info.get("using_estimate", False)
+                if avg_time > 3600:  # More than 1 hour
+                    hours = int(avg_time / 3600)
+                    minutes = int((avg_time % 3600) / 60)
+                    time_str = f"{hours}h{minutes}m" if hours > 0 else f"{minutes}m"
+                else:
+                    minutes = int(avg_time / 60)
+                    time_str = f"{minutes}m" if minutes > 0 else f"{avg_time:.0f}s"
                 
+                if using_estimate:
+                    detail_parts.append(f"Est: {time_str}/dichotomy")
+                else:
+                    detail_parts.append(f"Avg: {time_str}/dichotomy")
+            
+            # Add best metric if available
+            best_metric = progress_info.get("best_metric_so_far")
+            if best_metric and best_metric != "N/A":
+                detail_parts.append(f"Best: {best_metric:.3f}")
+            
+            # Update the detail text
+            detail_text = " • ".join(detail_parts) if detail_parts else "Multiclass experiment running..."
+            self.progress_detail_var.set(detail_text)
+            
+            # Update main status to show multiclass progress
+            if self.is_running:
+                if stage1_complete:
+                    status_text = f"Multiclass Complete ({dichotomy_progress} dichotomies)"
+                else:
+                    # Check if there's a current dichotomy being processed
+                    current_dichotomy_index = multiclass_info.get("current_dichotomy_index")
+                    if current_dichotomy_index:
+                        status_text = f"Processing Dichotomy {current_dichotomy_index}/{total_dichotomies} • {completed_dichotomies} completed"
+                    else:
+                        status_text = f"Running Multiclass ({dichotomy_progress} dichotomies)"
+                
+                self.status_var.set(status_text)
+        
         except Exception as e:
-            self.progress_detail_var.set(f"Error updating multiclass progress: {e}")
+            # If multiclass widget update fails, show basic info
+            self.progress_detail_var.set("Multiclass experiment running...")
+            self.update_custom_progress_bar("0/0", "0/0", False, False)
 
     def experiment_completed(self, message):
         """Handle experiment completion"""
@@ -2143,13 +2274,14 @@ class MLExperimentGUI:
             
             # Get current experiment data
             data_source = self.data_source_var.get()
-            csv_path = self.get_current_csv_path(for_report_generation=True)  # Use original path for reports
+            # Use original CSV path for consistent dataset ID generation
+            original_csv_path = self.get_dataset_id_csv_path()
             current_level = self.level_var.get()
             
             # Generate report through experiment runner
             self.experiment_runner.generate_experiment_report(
                 data_source=data_source,
-                csv_path=csv_path,
+                csv_path=original_csv_path,
                 current_level=current_level,
                 gui_root=self.root,
                 language=self.language
