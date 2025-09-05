@@ -14,6 +14,15 @@ Los modelos utilizados son **Ensamblajes de Perceptrones Multicapa (MLP) Bayesia
 *   **Generación de Informes**: Al finalizar un experimento, el sistema genera automáticamente un informe detallado con las métricas de rendimiento, la mejor configuración encontrada y visualizaciones.
 *   **Interfaz Gráfica Bilingüe**: Toda la gestión de los experimentos se realiza a través de una GUI intuitiva. La aplicación está disponible tanto en **español** como en **inglés**.
 
+## Estructura de Archivos
+
+El código fuente principal del proyecto se encuentra en el directorio `CodeStructure/`. Esta carpeta contiene todos los módulos clave de la aplicación:
+
+*   `CodeStructure/GUI/`: Contiene la interfaz gráfica de usuario. El punto de entrada es `connector.py`.
+*   `CodeStructure/model/`: Incluye la implementación de los modelos de ensamblaje bayesianos y la lógica de entrenamiento.
+*   `CodeStructure/report_generation/`: Módulos encargados de generar los informes en PDF.
+*   `CodeStructure/ecoc.py`: Implementación de las estrategias ECOC para clasificación multiclase.
+
 ## Requisitos
 
 *   **Python**: Se requiere la versión específica **Python 3.10.16**. El uso de esta versión es crucial para garantizar la compatibilidad total con las librerías del proyecto.
@@ -45,12 +54,12 @@ Para poner en marcha el entorno de trabajo, sigue estos pasos:
 
 ## Uso
 
-El punto de entrada principal de la aplicación es el script `GUI/connector.py`.
+El punto de entrada principal de la aplicación es el script `CodeStructure/GUI/connector.py`.
 
 1.  **Lanzar la aplicación:**
-    Ejecuta el siguiente comando desde la raíz del directorio `Small`:
+    Ejecuta el siguiente comando desde la raíz del directorio del proyecto:
     ```bash
-    python3 GUI/connector.py
+    python3 CodeStructure/GUI/connector.py
     ```
 
 2.  **Seleccionar un Dataset:**
@@ -79,6 +88,15 @@ The models at the core of this framework are **Bayesian Multi-Layer Perceptron (
 *   **ECOC Strategies**: For multi-class problems, it implements Error-Correcting Output Codes (ECOC) strategies to decompose the problem into binary classifiers.
 *   **Report Generation**: Upon completion of an experiment, the system automatically generates a detailed report with performance metrics, the best configuration found, and visualizations.
 *   **Bilingual Graphical Interface**: All experiment management is handled through an intuitive GUI. The application is available in both **English** and **Spanish**.
+
+## File Structure
+
+The main source code for the project is located in the `CodeStructure/` directory. This folder contains all the key modules for the application:
+
+*   `CodeStructure/GUI/`: Contains the graphical user interface. The entry point is `connector.py`.
+*   `CodeStructure/model/`: Includes the implementation of the Bayesian ensemble models and the training logic.
+*   `CodeStructure/report_generation/`: Modules responsible for generating PDF reports.
+*   `CodeStructure/ecoc.py`: Implementation of ECOC strategies for multi-class classification.
 
 ## Requirements
 
@@ -111,12 +129,12 @@ To set up the working environment, follow these steps:
 
 ## Usage
 
-The main entry point for the application is the `GUI/connector.py` script.
+The main entry point for the application is the `CodeStructure/GUI/connector.py` script.
 
 1.  **Launch the application:**
-    Run the following command from the root of the `Small` directory:
+    Run the following command from the project's root directory:
     ```bash
-    python3 GUI/connector.py
+    python3 CodeStructure/GUI/connector.py
     ```
 
 2.  **Select a Dataset:**
@@ -126,4 +144,4 @@ The main entry point for the application is the `GUI/connector.py` script.
     Start the study. The framework will begin the process of preprocessing, training the different Bayesian ensemble models, and searching for the best strategy.
 
 4.  **View the Report:**
-    Once the analysis is complete, a report with the results will be generated, which you can view
+    Once the analysis is complete, a report with the results will be generated, which you can view directly from

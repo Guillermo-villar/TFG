@@ -1,2 +1,40 @@
-Small/plots*
-Small/analysis_results.txt
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environments
+venv/
+env/
+*.venv
+
+# Datasets and Experiment Outputs
+# Ignore specific CSV files that are generated during processing
+*_processed.csv
+*_original.csv
+dichotomy_*.csv
+test_results.csv
+synth_dataset.csv
+
+# Ignore entire experiment output folders, which often have hash-based names
+# or are stored in a common directory like 'experiments' or 'results'.
+# Adjust the pattern if your experiment folders follow a different naming convention.
+experiments/
+results/
+output/
+runs/
+
+# Ignore JSON files with experiment progress or model configurations
+multiclass_progress_*.json
+best_runner_*.json
+
+# Temporary PDF files for reports
+*.tmp.pdf
+
+# IDE configuration
+.vscode/
+.idea/
+
+# Log files
+*.log
