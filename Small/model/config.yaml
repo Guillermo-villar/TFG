@@ -1,0 +1,210 @@
+capilaridad_levels:
+  1:
+    max_seconds_per_model: 120
+    n_simulations: 1
+    stage1:
+      activation_fn: relu
+      drop_out:
+      - 0.0
+      hidden_size:
+      - 30
+      lbfgs: false
+      loss_fn: custom
+      mode: random
+      n_batch:
+      - 128
+      n_epoch:
+      - 50
+      num_experts:
+      - 21
+      rb_each_expert: false
+    stage2:
+      Q_RB_C:
+      - 2.0
+      Q_RB_S:
+      - 1
+      - 3
+      alpha:
+      - 0.0
+      - 0.25
+      beta:
+      - 0.0
+  2:
+    max_seconds_per_model: 300
+    n_simulations: 1
+    stage1:
+      activation_fn: relu
+      drop_out:
+      - 0
+      - 0.1
+      hidden_size:
+      - 30
+      - 40
+      lbfgs: false
+      loss_fn: custom
+      mode: random
+      n_batch:
+      - 128
+      - 256
+      n_epoch:
+      - 50
+      - 100
+      num_experts:
+      - 21
+      - 31
+      rb_each_expert: false
+    stage2:
+      Q_RB_C:
+      - 2.0
+      - 5.0
+      Q_RB_S:
+      - 1
+      - 2
+      - 5
+      alpha:
+      - 0.15
+      - 0.2
+      - 0.35
+      beta:
+      - 0
+      - 0.1
+  3:
+    max_seconds_per_model: 600
+    n_simulations: 2
+    stage1:
+      activation_fn: relu
+      drop_out:
+      - 0.0
+      - 0.05
+      - 0.1
+      hidden_size:
+      - 30
+      - 35
+      - 40
+      lbfgs: false
+      loss_fn: custom
+      mode: random
+      n_batch:
+      - 128
+      - 192
+      - 256
+      n_epoch:
+      - 50
+      - 75
+      - 100
+      num_experts:
+      - 21
+      - 26
+      - 31
+      rb_each_expert: false
+    stage2:
+      Q_RB_C:
+      - 1.5
+      - 2.0
+      - 3.0
+      - 5.0
+      Q_RB_S:
+      - 1
+      - 2
+      - 3
+      - 5
+      - 7
+      alpha:
+      - 0.0
+      - 0.1
+      - 0.15
+      - 0.25
+      - 0.35
+      beta:
+      - 0.0
+      - 0.05
+      - 0.1
+      - 0.15
+data:
+  dataset_file: ./datasets/synthetic/synth_dataset.csv
+  dichotomy_id: dichotomy_05
+  external_dataset: /home/ubuntu/Downloads/Code/NeonGenesis/Small/model/datasets/IDs/real_8f6200bf/real_8f6200bf_ova_dichotomy_05.csv
+  generate_new: false
+  params:
+    n_classes: 2
+    n_features: 20
+    n_informative: 15
+    n_redundant: 5
+    n_samples: 5000
+    random_state: 41
+    test_size: 0.2
+    weights:
+    - 0.95
+    - 0.05
+model:
+  lsensemble:
+    stage1:
+      activation_fn: relu
+      drop_out:
+      - 0
+      - 0.1
+      hidden_size:
+      - 30
+      - 40
+      lbfgs: false
+      loss_fn: custom
+      mode: random
+      n_batch:
+      - 128
+      - 256
+      n_epoch:
+      - 50
+      - 100
+      num_experts:
+      - 21
+      - 31
+      rb_each_expert: false
+    stage2:
+      Q_RB_C:
+      - 2.0
+      - 5.0
+      Q_RB_S:
+      - 1
+      - 2
+      - 5
+      alpha:
+      - 0.15
+      - 0.2
+      - 0.35
+      beta:
+      - 0
+      - 0.1
+  max_seconds_per_model: 300
+  mlpbayes:
+    costeN: 1
+    costeP: 1
+    s_NnBase:
+    - 20
+    - 30
+    s_No:
+    - 1
+    s_nBatch:
+    - 128
+    - 256
+    s_nEpoch:
+    - 100
+    - 200
+    s_pDOent:
+    - 0.0
+    - 0.1
+    s_pDOocu:
+    - 0.0
+    - 0.1
+    s_tActBase:
+    - tanh
+    - relu
+    s_tActSalida:
+    - identity
+  n_simulations: 1
+  selection_method: conf
+multiclass:
+  enabled: true
+  strategy: ova
+output:
+  log_level: INFO
+  results_file: ./datasets/results/test_results.csv

@@ -355,7 +355,20 @@ def parse_experiment_folder(experiment_folder):
     import json
     import csv
 
+    # Try to get the original dataset name from the actual CSV file instead of the hash-based folder name
     dataset_name = os.path.basename(experiment_folder)
+    original_dataset_name = dataset_name  # fallback to folder name
+    
+    # Look for the original CSV file to get the real filename
+    for f in os.listdir(experiment_folder):
+        if f.endswith('.csv') and not ('dichotomy' in f or 'processed' in f):
+            # Use the original filename without extension as the dataset name
+            original_dataset_name = os.path.splitext(f)[0]
+            break
+        elif f.endswith('_original.csv'):
+            # Fallback to old naming convention
+            original_dataset_name = os.path.splitext(f)[0].replace('_original', '')
+            break
 
     # Detect multiclass or binary by counting dichotomy folders
     dichotomies = [
@@ -470,7 +483,7 @@ def parse_experiment_folder(experiment_folder):
                     break
 
     return {
-        "dataset_name": dataset_name,
+        "dataset_name": original_dataset_name,  # Use the original filename instead of hash
         "is_multiclass": is_multiclass,
         "strategy": strategy,
         "dichotomy_mapping": dichotomy_mapping,
