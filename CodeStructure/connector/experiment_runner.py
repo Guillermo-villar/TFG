@@ -123,6 +123,7 @@ class ExperimentRunner:
             elif data_source == "real":
                 config['data']['generate_new'] = False
                 if csv_path:
+                    # Always store the original file path, not any processed version
                     config['data']['external_dataset'] = csv_path
 
             # Add multiclass configuration
@@ -175,6 +176,16 @@ class ExperimentRunner:
 
     def diagnose_path_mismatch(self, original_csv_path):
         return diagnose_path_mismatch(original_csv_path)
+
+    def get_dataset_id(self, csv_path):
+        """Get the dataset ID for a given CSV file."""
+        from model.data_generator import generate_real_data_id
+        return generate_real_data_id(csv_path)
+
+    def get_dataset_paths(self, dataset_id):
+        """Get the directory structure for a given dataset ID."""
+        from model.data_generator import get_dataset_directory_structure
+        return get_dataset_directory_structure(dataset_id)
 
     def reconstitute_multiclass_models(self, dataset_id):
         return reconstitute_multiclass_models(dataset_id)

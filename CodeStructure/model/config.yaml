@@ -122,8 +122,8 @@ capilaridad_levels:
       - 0.15
 data:
   dataset_file: ./datasets/synthetic/synth_dataset.csv
-  dichotomy_id: dichotomy_05
-  external_dataset: /home/ubuntu/Downloads/Code/NeonGenesis/Small/model/datasets/IDs/real_8f6200bf/real_8f6200bf_ova_dichotomy_05.csv
+  dichotomy_id: dichotomy_04
+  external_dataset: /home/ubuntu/Downloads/Code/NeonGenesis/CodeStructure/model/datasets/IDs/real_903626d0/real_903626d0_ova_dichotomy_04.csv
   generate_new: false
   params:
     n_classes: 2

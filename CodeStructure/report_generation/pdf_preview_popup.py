@@ -141,10 +141,10 @@ class PDFPreviewPopup:
             return
         
         try:
-            # Extract dataset ID from the experiment data
-            dataset_id = self.experiment_data.get('dataset_name')
+            # Extract the correct dataset ID (the hash) from the experiment data
+            dataset_id = self.experiment_data.get('dataset_id')
             if not dataset_id:
-                messagebox.showerror("Error", "Cannot find dataset ID for reconstitution.", parent=self.popup)
+                messagebox.showerror("Error", "Cannot find dataset ID for reconstitution in experiment data.", parent=self.popup)
                 return
             
             # Show confirmation dialog
@@ -483,6 +483,7 @@ def parse_experiment_folder(experiment_folder):
                     break
 
     return {
+        "dataset_id": dataset_name, # This is the hash
         "dataset_name": original_dataset_name,  # Use the original filename instead of hash
         "is_multiclass": is_multiclass,
         "strategy": strategy,

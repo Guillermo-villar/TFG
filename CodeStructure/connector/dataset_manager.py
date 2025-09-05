@@ -12,7 +12,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-import data_generator
+from model import data_generator
 from model.test_LSEnsemble import load_study_progress
 
 def get_dataset_status(config_path, data_source="synthetic", csv_path=None, current_level=1):
@@ -33,13 +33,16 @@ def get_dataset_status(config_path, data_source="synthetic", csv_path=None, curr
             params = config.get("data", {}).get("params", {})
             dataset_id = data_generator.generate_dataset_id(params, "synth")
         else:
-            # For real data, use the improved content-based hash generation
-            if csv_path and os.path.exists(csv_path):
-                dataset_id = data_generator.generate_real_data_id(csv_path)
-            else:
-                # Fallback for non-existent files
-                params = {"file_path": csv_path}
-                dataset_id = data_generator.generate_dataset_id(params, "real")
+            # For real data, always use the content-based hash generation
+            if not csv_path or not os.path.exists(csv_path):
+                return {
+                    "status": "error",
+                    "message": f"CSV file path not provided or file does not exist: {csv_path}",
+                    "current_capilaridad_config": current_capilaridad_config,
+                    "current_level": current_level,
+                    "experiment_type": "unknown"
+                }
+            dataset_id = data_generator.generate_real_data_id(csv_path)
         
         # First check for multiclass experiment
         dataset_paths = data_generator.get_dataset_directory_structure(dataset_id)
@@ -273,7 +276,7 @@ def get_timing_and_eta(dataset_paths, stage1_done, stage1_total, stage2_done, st
     """
     timing_info = {"avg_time_per_run": 0, "total_time_elapsed": 0, "eta_seconds": None, "eta_formatted": "Unknown", "total_runs_completed": 0, "runs_per_hour": 0}
     try:
-        dataset_csv = dataset_paths["dataset_csv"]
+        dataset_csv = dataset_paths["processed_csv"]
         dataset_size = len(pd.read_csv(dataset_csv)) if os.path.exists(dataset_csv) else 0
         
         estimated_time_per_run = 30.0 if dataset_size > 1000 else (15.0 if dataset_size > 500 else 10.0)

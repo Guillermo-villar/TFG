@@ -65,7 +65,8 @@ def get_dataset_directory_structure(dataset_id, base_datasets_dir=None):
     return {
         "dataset_dir": dataset_dir,
         "runs_dir": runs_dir,
-        "dataset_csv": os.path.join(dataset_dir, f"{dataset_id}_dataset.csv"),
+        "original_csv": os.path.join(dataset_dir, f"{dataset_id}_original.csv"),
+        "processed_csv": os.path.join(dataset_dir, f"{dataset_id}_processed.csv"),
         "best_runner_json": os.path.join(dataset_dir, f"best_runner_{dataset_id}.json")
     }
 
@@ -181,24 +182,33 @@ def setup_real_dataset_structure(file_path, base_datasets_dir=None):
     """
     import shutil
     
-    # Generate dataset ID for real data
+    # Generate dataset ID for real data from the original file
     dataset_id = generate_real_data_id(file_path)
     
     # Get directory structure
     paths = get_dataset_directory_structure(dataset_id, base_datasets_dir)
     
-    # Ensure directory exists
-    ensure_dir_exists(paths["dataset_csv"])  # This will create the directory for the file
+    # Ensure the dataset-specific directory exists
+    ensure_dir_exists(os.path.join(paths["dataset_dir"], "file.tmp"))
     
-    # Copy the original file to the dataset directory (if it's not already there)
-    if not os.path.exists(paths["dataset_csv"]):
-        shutil.copy2(file_path, paths["dataset_csv"])
-    
+    # Define paths for original and processed datasets
+    original_dst_path = paths["original_csv"]
+    processed_dst_path = paths["processed_csv"] 
+
+    # Copy the original file for reference, if it doesn't exist
+    if not os.path.exists(original_dst_path):
+        shutil.copy2(file_path, original_dst_path)
+
+    # Copy the original file to be the dataset file for processing, if it doesn't exist
+    if not os.path.exists(processed_dst_path):
+        shutil.copy2(file_path, processed_dst_path)
+
     data_info = {
         "dataset_id": dataset_id,
         "dataset_dir": paths["dataset_dir"],
-        "file_path": paths["dataset_csv"],
+        "file_path": processed_dst_path, # This points to {dataset_id}_processed.csv
         "original_path": file_path,
+        "original_saved_path": original_dst_path,
         "paths": paths
     }
     

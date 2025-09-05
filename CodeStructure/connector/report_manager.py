@@ -92,7 +92,13 @@ def reconstitute_multiclass_models(dataset_id):
         class_names = multiclass_data.get("class_names", [])
         M_ecoc_matrix = np.array(multiclass_data.get("code_matrix", []))
 
-        original_csv_path = next((os.path.join(dataset_dir, f) for f in os.listdir(dataset_dir) if f.endswith('_original.csv')), None)
+        # Look for any CSV file that is not a dichotomy or processed file
+        original_csv_path = None
+        for f in os.listdir(dataset_dir):
+            if f.endswith('.csv') and 'dichotomy' not in f and 'processed' not in f:
+                original_csv_path = os.path.join(dataset_dir, f)
+                break
+        
         if not original_csv_path:
             return {"success": False, "message": "Original dataset file not found"}
 

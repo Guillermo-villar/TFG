@@ -315,9 +315,21 @@ def main(level=None, study_mode="full_study", output_dir=None):
         else:
             logger.info("Using external dataset from config")
             original_dataset_path = resolve_path(script_dir, config["data"]["external_dataset"])
+            
+            # CRITICAL: Generate the dataset ID from the ORIGINAL file before any processing
+            # This ensures the hash is consistent across the entire application
+            dataset_id = data_generator.generate_real_data_id(original_dataset_path)
+            logger.info(f"Generated dataset ID from original file: {dataset_id}")
+            
+            # Now set up the directory structure using this ID
             data_info = data_generator.setup_real_dataset_structure(original_dataset_path)
+            
+            # Verify the IDs match (they should, but this is a safety check)
+            if data_info['dataset_id'] != dataset_id:
+                logger.warning(f"Dataset ID mismatch! Generated: {dataset_id}, Setup returned: {data_info['dataset_id']}")
+                dataset_id = data_info['dataset_id']  # Use the setup one as fallback
+            
             dataset_path = data_info['file_path']
-            dataset_id = data_info['dataset_id']
             dataset_dir = data_info['dataset_dir']
             dataset_params = {
                 "source": "external",

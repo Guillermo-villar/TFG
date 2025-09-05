@@ -643,9 +643,14 @@ class MLExperimentGUI:
                 
                 else:
                     # NOT MULTICLASS: Standard binary processing flow
+                    # Get the directory for the original file's hash
+                    dataset_id = self.experiment_runner.get_dataset_id(self.original_csv_path)
+                    dataset_paths = self.experiment_runner.get_dataset_paths(dataset_id)
+                    output_dir = dataset_paths["dataset_dir"]
+
                     # Create processed filename
                     base_name = os.path.splitext(os.path.basename(filepath))[0]
-                    processed_path = os.path.join(os.path.dirname(filepath), f"{base_name}_processed.csv")
+                    processed_path = os.path.join(output_dir, f"{base_name}_processed.csv")
                     
                     # Show standard preprocessing dialog
                     proceed = messagebox.askyesno(
