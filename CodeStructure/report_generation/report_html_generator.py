@@ -190,12 +190,21 @@ class ReportHTMLGenerator:
 
                 <div class="section">
                     <h2><span class="emoji">🧪</span>Machine Learning Strategy</h2>
+                    {% if data.is_multiclass %}
                     <div class="explanation">
                         <strong>What is Multiclass Decomposition?</strong><br>
                         When dealing with multiple classes (like A, B, C, D), we break down the complex problem into simpler 
                         binary (two-class) problems called "dichotomies." This makes it easier for the computer to learn patterns
                         and make accurate predictions.
                     </div>
+                    {% else %}
+                    <div class="explanation">
+                        <strong>What is Ensemble Learning?</strong><br>
+                        This experiment uses an ensemble approach where multiple neural network "experts" are trained together
+                        and their predictions are combined through voting. Each expert learns different aspects of the data, 
+                        making the final model more robust and accurate than any single network.
+                    </div>
+                    {% endif %}
                     
                     {% if data.is_multiclass %}
                     <div class="card">
@@ -266,13 +275,21 @@ class ReportHTMLGenerator:
                     {% else %}
                     <div class="card">
                         <h3 style="margin-top: 0; color: #3a3a7a;">Binary Classification Strategy</h3>
-                        <p>This experiment used a direct binary classification approach, as there are only two classes to distinguish between. 
+                        <p>This experiment used a direct binary classification approach with an ensemble of neural network experts. 
                         The model was optimized specifically for this two-class problem using:</p>
                         <ul>
-                            <li>Advanced neural network architecture with multiple experts</li>
-                            <li>Custom loss functions designed for binary classification</li>
-                            <li>Specialized techniques to handle class imbalance</li>
+                            <li><strong>Label Switching Ensemble:</strong> Multiple expert networks with label switching capabilities</li>
+                            <li><strong>Expert Voting System:</strong> Each expert contributes to the final prediction through weighted voting</li>
+                            <li><strong>Advanced Regularization:</strong> Dropout and other techniques to prevent overfitting</li>
+                            <li><strong>Custom Loss Functions:</strong> Optimized for binary classification and class imbalance</li>
+                            <li><strong>Hyperparameter Optimization:</strong> Systematic search for optimal network architecture and training parameters</li>
                         </ul>
+                        
+                        <div style="background: #fff3e0; padding: 15px; border-radius: 8px; margin-top: 20px; border-left: 4px solid #ff9800;">
+                            <h4 style="margin-top: 0; color: #f57c00;">🏆 Final Prediction</h4>
+                            <p>The ensemble combines predictions from all expert networks using sophisticated voting algorithms to 
+                            make the final binary classification decision, resulting in more robust and accurate predictions.</p>
+                        </div>
                     </div>
                     {% endif %}
                 </div>
@@ -296,15 +313,202 @@ class ReportHTMLGenerator:
                     </div>
                 </div>
 
+                {% if not data.is_multiclass %}
                 <div class="section">
-                    <h2><span class="emoji">🏆</span>Detailed Results by Dichotomy</h2>
+                    <h2><span class="emoji">⚙️</span>Optimal Model Configuration</h2>
                     <div class="explanation">
-                        <strong>Performance Analysis:</strong><br>
-                        Each dichotomy represents a binary classification problem. Below are the results
-                        in sequential order, showing which classes were compared and what the performance metrics mean.
+                        <strong>Best Model Parameters Found:</strong><br>
+                        This configuration represents the optimal values automatically determined during the optimization process.
+                        Each parameter has been fine-tuned to maximize performance on this specific dataset.
                     </div>
                     
-                    {% if data.is_multiclass and data.dichotomy_mapping %}
+                    {% for d, model_data in data.best_model.items() %}
+                        {% set config = model_data.get('best_runner', {}) %}
+                        {% if config %}
+                        <div class="card" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-left: 4px solid #007acc;">
+                            <h3 style="margin-top: 0; color: #007acc; border-bottom: 2px solid #007acc; padding-bottom: 10px;">
+                                � Neural Network Ensemble Configuration
+                            </h3>
+                            
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0;">
+                                
+                                <!-- Core Architecture -->
+                                <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                    <h4 style="margin-top: 0; color: #495057; border-bottom: 1px solid #dee2e6; padding-bottom: 8px;">🏗️ Core Architecture</h4>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>👥 Number of Experts:</strong> <span style="font-size: 1.3em; color: #007acc; font-weight: bold;">{{ config.get('num_experts', 'N/A') }}</span><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            Redes neuronales independientes que trabajan en conjunto. 
+                                            {% if config.get('num_experts')|int < 15 %}
+                                                Configuración conservadora para estabilidad.
+                                            {% elif config.get('num_experts')|int < 25 %}
+                                                Configuración balanceada entre capacidad y eficiencia.
+                                            {% else %}
+                                                Configuración avanzada para máxima capacidad de aprendizaje.
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>🧠 Hidden Size:</strong> <span style="font-size: 1.2em; color: #28a745;">{{ config.get('hidden_size', 'N/A') }}</span> neurons<br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            Determina la capacidad de representación interna de cada experto. 
+                                            Más neurons = mayor capacidad pero también mayor riesgo de sobreajuste.
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>🔄 Activation Function:</strong> <code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px;">{{ config.get('activation_fn', 'N/A').upper() }}</code><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            {% if config.get('activation_fn') == 'relu' %}
+                                                ReLU: Función rápida y eficiente que evita el problema de gradientes que se desvanecen.
+                                            {% elif config.get('activation_fn') == 'tanh' %}
+                                                Tanh: Salida entre -1 y 1, ideal para datos normalizados.
+                                            {% elif config.get('activation_fn') == 'sigmoid' %}
+                                                Sigmoid: Salida entre 0 y 1, clásica para probabilidades.
+                                            {% else %}
+                                                Función que determina cómo se activan las neurons.
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <!-- Training Configuration -->
+                                <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                    <h4 style="margin-top: 0; color: #495057; border-bottom: 1px solid #dee2e6; padding-bottom: 8px;">🎓 Training Configuration</h4>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>📦 Batch Size:</strong> <span style="font-size: 1.2em; color: #fd7e14;">{{ config.get('n_batch', 'N/A') }}</span> samples<br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            Número de ejemplos procesados simultáneamente. Lotes más grandes = entrenamiento más estable pero más memoria.
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>🔄 Epochs:</strong> <span style="font-size: 1.2em; color: #e83e8c;">{{ config.get('n_epoch', 'N/A') }}</span> iterations<br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            Número de veces que el modelo ve todo el dataset durante el entrenamiento.
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>🎯 Loss Function:</strong> <code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px;">{{ config.get('loss_fn', 'N/A').upper() }}</code><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            {% if config.get('loss_fn') == 'custom' %}
+                                                Función personalizada optimizada para el desequilibrio de clases y Label Switching.
+                                            {% else %}
+                                                Función que mide qué tan lejos están las predicciones de los valores reales.
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>🚫 Dropout:</strong> <span style="font-size: 1.2em; color: #6c757d;">{{ config.get('drop_out', 'N/A') }}</span><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            Probabilidad de "apagar" neurons durante entrenamiento para prevenir sobreajuste.
+                                            {% if config.get('drop_out')|float == 0 %}
+                                                Sin dropout - el modelo confía en regularización por ensemble.
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <!-- Label Switching Parameters -->
+                                <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                    <h4 style="margin-top: 0; color: #495057; border-bottom: 1px solid #dee2e6; padding-bottom: 8px;">🔄 Label Switching Parameters</h4>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>⚖️ Alpha (α):</strong> <span style="font-size: 1.3em; color: #dc3545; font-weight: bold;">{{ config.get('alpha', 'N/A') }}</span><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            Controla el intercambio de etiquetas de clase mayoritaria → minoritaria. 
+                                            Valores más altos = más casos mayoritarios se convierten en minoritarios.
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>⚖️ Beta (β):</strong> <span style="font-size: 1.3em; color: #17a2b8; font-weight: bold;">{{ config.get('beta', 'N/A') }}</span><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            Controla el intercambio de etiquetas de clase minoritaria → mayoritaria. 
+                                            Valores más bajos preservan mejor la clase minoritaria.
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>💰 Q_RB_C:</strong> <span style="font-size: 1.2em; color: #ffc107;">{{ config.get('Q_RB_C', 'N/A') }}</span><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            Factor de refactor de coste. Ajusta la penalización por errores en diferentes clases 
+                                            para compensar el desequilibrio del dataset.
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>🎯 Q_RB_S:</strong> <span style="font-size: 1.2em; color: #20c997;">{{ config.get('Q_RB_S', 'N/A') }}</span><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            Factor SMOTE (Synthetic Minority Oversampling). Controla la generación 
+                                            sintética de ejemplos de la clase minoritaria.
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <!-- Data Distribution -->
+                                <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                    <h4 style="margin-top: 0; color: #495057; border-bottom: 1px solid #dee2e6; padding-bottom: 8px;">📊 Data Distribution</h4>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>📐 Input Size:</strong> <span style="font-size: 1.2em; color: #6f42c1;">{{ config.get('input_size', 'N/A') }}</span> features<br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            Número de variables/features de entrada que recibe cada experto.
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>🎲 Data Mode:</strong> <code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px;">{{ config.get('mode', 'N/A').upper() }}</code><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            {% if config.get('mode') == 'random' %}
+                                                Modo aleatorio: Cada experto recibe una muestra aleatoria diferente de los datos.
+                                            {% else %}
+                                                Estrategia de distribución de datos entre expertos.
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>🔀 RB per Expert:</strong> 
+                                        <span style="font-size: 1.2em; color: {% if config.get('rb_each_expert') %}#28a745{% else %}#dc3545{% endif %};">
+                                            {% if config.get('rb_each_expert') %}SÍ{% else %}NO{% endif %}
+                                        </span><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            {% if config.get('rb_each_expert') %}
+                                                Cada experto recibe un subconjunto diferente de datos para aumentar diversidad.
+                                            {% else %}
+                                                Todos los expertos entrenan con el mismo conjunto de datos.
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                    
+                                    <div style="margin: 15px 0;">
+                                        <strong>🔧 Optimizador:</strong> 
+                                        <span style="font-size: 1.2em; color: {% if not config.get('lbfgs') %}#28a745{% else %}#007acc{% endif %};">
+                                            {% if not config.get('lbfgs') %}ADAM{% else %}L-BFGS{% endif %}
+                                        </span><br>
+                                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                                            {% if not config.get('lbfgs') %}
+                                                ADAM: Optimizador adaptativo, eficiente para la mayoría de problemas.
+                                            {% else %}
+                                                L-BFGS: Optimizador de memoria limitada, más preciso pero costoso computacionalmente.
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if data.is_multiclass and data.dichotomy_mapping %}
                         {% for i in range(1, (data.dichotomy_mapping|length) + 1) %}
                             {% set d_key = 'dichotomy_{:02d}'.format(i) %}
                             {% set mapping = data.dichotomy_mapping.get(d_key) %}
@@ -359,7 +563,7 @@ class ReportHTMLGenerator:
                                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
                                         {% if config.get('activation_fn') %}
                                         <div>
-                                            <strong>🔄 Función de Activación:</strong> <code>{{ config.activation_fn.upper() }}</code><br>
+                                            <strong>🔄 Activation Function:</strong> <code>{{ config.activation_fn.upper() }}</code><br>
                                             <small style="color: #6c757d;">
                                                 {% if config.activation_fn == 'relu' %}
                                                     ReLU: Rápida y efectiva, evita gradientes negativos
@@ -368,7 +572,7 @@ class ReportHTMLGenerator:
                                                 {% elif config.activation_fn == 'sigmoid' %}
                                                     Sigmoid: Salida entre 0 y 1, clásica para probabilidades
                                                 {% else %}
-                                                    Función que determina cómo se activan las neuronas
+                                                    Función que determina cómo se activan las neurons
                                                 {% endif %}
                                             </small>
                                         </div>
@@ -376,7 +580,7 @@ class ReportHTMLGenerator:
                                         
                                         {% if config.get('num_experts') %}
                                         <div>
-                                            <strong>👥 Número de Expertos:</strong> <span style="font-size: 1.2em; color: #007acc;">{{ config.num_experts }}</span><br>
+                                            <strong>👥 Number of Experts:</strong> <span style="font-size: 1.2em; color: #007acc;">{{ config.num_experts }}</span><br>
                                             <small style="color: #6c757d;">
                                                 Redes neuronales paralelas que trabajan juntas. 
                                                 {% if config.num_experts|int < 15 %}
@@ -440,7 +644,7 @@ class ReportHTMLGenerator:
                                         
                                         {% if config.get('n_epoch') %}
                                         <div>
-                                            <strong>🔄 Épocas de Entrenamiento:</strong> <span style="font-size: 1.2em; color: #007acc;">{{ config.n_epoch }}</span><br>
+                                            <strong>🔄 Epochs de Entrenamiento:</strong> <span style="font-size: 1.2em; color: #007acc;">{{ config.n_epoch }}</span><br>
                                             <small style="color: #6c757d;">
                                                 Veces que el modelo vio todos los datos. 
                                                 {% if config.n_epoch|int < 50 %}
@@ -456,7 +660,7 @@ class ReportHTMLGenerator:
                                         
                                         {% if config.get('n_batch') %}
                                         <div>
-                                            <strong>📦 Tamaño de Lote:</strong> <span style="font-size: 1.2em; color: #007acc;">{{ config.n_batch }}</span><br>
+                                            <strong>📦 Batch Size:</strong> <span style="font-size: 1.2em; color: #007acc;">{{ config.n_batch }}</span><br>
                                             <small style="color: #6c757d;">
                                                 Muestras procesadas antes de actualizar. 
                                                 {% if config.n_batch|int < 64 %}
@@ -479,7 +683,11 @@ class ReportHTMLGenerator:
                         <!-- Fallback para datos sin mapeo de dicotomías -->
                         {% for d, m in data.metrics.items() %}
                             <div class="card">
-                                <h3 style="margin-top: 0; color: #3a3a7a;">{{ d.replace('_', ' ').title() }}</h3>
+                                {% if not data.is_multiclass %}
+                                    <h3 style="margin-top: 0; color: #3a3a7a;">Binary Classification Performance</h3>
+                                {% else %}
+                                    <h3 style="margin-top: 0; color: #3a3a7a;">{{ d.replace('_', ' ').title() }}</h3>
+                                {% endif %}
                                 <div class="metrics-grid">
                                 {% for k, v in m.items() %}
                                     <div class="metric-item">
@@ -491,91 +699,6 @@ class ReportHTMLGenerator:
                             </div>
                         {% endfor %}
                     {% endif %}
-                </div>
-
-                <div class="section">
-                    <h2><span class="emoji">🛠️</span>Model Configuration Details</h2>
-                    <div class="explanation">
-                        <strong>Optimized Parameters:</strong><br>
-                        These are the best-performing configurations discovered through systematic testing.
-                        Each dichotomy was individually optimized for maximum performance.
-                    </div>
-                    
-                    {% for d, bm in data.best_model.items() %}
-                        <div class="card">
-                            <h3 style="margin-top: 0; color: #3a3a7a;">{{ d.replace('_', ' ').title().replace('Dichotomy', 'Binary Classifier') }}</h3>
-                            {% if bm.get('best_runner') %}
-                                {% set config = bm.best_runner %}
-                                <div class="metrics-grid">
-                                    {% if config.get('activation_fn') %}
-                                    <div class="metric-item">
-                                        <strong>Activation Function</strong><br>
-                                        <span style="font-family: monospace;">{{ config.activation_fn|upper }}</span>
-                                        <small style="display: block; color: #666;">Neural network activation type</small>
-                                    </div>
-                                    {% endif %}
-                                    {% if config.get('num_experts') %}
-                                    <div class="metric-item">
-                                        <strong>Expert Networks</strong><br>
-                                        <span style="font-size: 1.2em; color: #007acc;">{{ config.num_experts }}</span>
-                                        <small style="display: block; color: #666;">Parallel neural networks</small>
-                                    </div>
-                                    {% endif %}
-                                    {% if config.get('hidden_size') %}
-                                    <div class="metric-item">
-                                        <strong>Network Complexity</strong><br>
-                                        <span style="font-size: 1.2em; color: #007acc;">{{ config.hidden_size }} neurons</span>
-                                        <small style="display: block; color: #666;">Hidden layer size</small>
-                                    </div>
-                                    {% endif %}
-                                    {% if config.get('n_epoch') %}
-                                    <div class="metric-item">
-                                        <strong>Training Iterations</strong><br>
-                                        <span style="font-size: 1.2em; color: #007acc;">{{ config.n_epoch }} epochs</span>
-                                        <small style="display: block; color: #666;">Learning cycles completed</small>
-                                    </div>
-                                    {% endif %}
-                                    {% if config.get('n_batch') %}
-                                    <div class="metric-item">
-                                        <strong>Batch Size</strong><br>
-                                        <span style="font-size: 1.2em; color: #007acc;">{{ config.n_batch }} samples</span>
-                                        <small style="display: block; color: #666;">Data processed per update</small>
-                                    </div>
-                                    {% endif %}
-                                    {% if config.get('drop_out') %}
-                                    <div class="metric-item">
-                                        <strong>Dropout Rate</strong><br>
-                                        <span style="font-size: 1.2em; color: #007acc;">{{ (config.drop_out * 100)|round(1) }}%</span>
-                                        <small style="display: block; color: #666;">Regularization strength</small>
-                                    </div>
-                                    {% endif %}
-                                    {% if config.get('alpha') %}
-                                    <div class="metric-item">
-                                        <strong>Learning Rate (α)</strong><br>
-                                        <span style="font-size: 1.2em; color: #007acc;">{{ config.alpha }}</span>
-                                        <small style="display: block; color: #666;">Optimization speed</small>
-                                    </div>
-                                    {% endif %}
-                                </div>
-                                
-                                {% if config.get('mode') or config.get('loss_fn') %}
-                                <div style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 6px;">
-                                    <strong>Optimization Details:</strong>
-                                    {% if config.get('mode') %}
-                                    <span style="margin-left: 10px;">Training Mode: <code>{{ config.mode|title }}</code></span>
-                                    {% endif %}
-                                    {% if config.get('loss_fn') %}
-                                    <span style="margin-left: 10px;">Loss Function: <code>{{ config.loss_fn|title }}</code></span>
-                                    {% endif %}
-                                </div>
-                                {% endif %}
-                            {% else %}
-                                <div style="padding: 15px; background: #f8f9fa; border-radius: 6px;">
-                                    <p>Configuration details not available for this classifier.</p>
-                                </div>
-                            {% endif %}
-                        </div>
-                    {% endfor %}
                 </div>
 
                 <div class="section">
@@ -598,7 +721,15 @@ class ReportHTMLGenerator:
                         <h3>What This Means:</h3>
                         <ul>
                             <li>The model was trained using advanced techniques designed for {{ 'multiclass' if data.is_multiclass else 'binary' }} classification</li>
-                            <li>{{ 'Multiple binary classifiers were combined to handle the multiclass problem' if data.is_multiclass else 'A single binary classifier was optimized for this two-class problem' }}</li>
+                            {% if data.is_multiclass %}
+                            <li>Multiple binary classifiers were combined to handle the multiclass problem</li>
+                            <li>Each dichotomy was individually optimized for maximum performance</li>
+                            <li>The final prediction combines votes from all binary classifiers using error-correcting codes</li>
+                            {% else %}
+                            <li>An ensemble of expert neural networks was optimized for this two-class problem</li>
+                            <li>Hyperparameter optimization found the best configuration through systematic testing</li>
+                            <li>The final model combines predictions from multiple experts for robust classification</li>
+                            {% endif %}
                             <li>Performance metrics indicate how well the model can make predictions on new, unseen data</li>
                             {% if data.imbalance_ratio and data.imbalance_ratio|float > 3.0 %}
                             <li>Due to class imbalance, pay special attention to metrics for minority classes</li>
@@ -766,8 +897,8 @@ class ReportHTMLGenerator:
                     class_distribution="Distribución de Clases",
                     what_is_class_dist_title="¿Qué es la Distribución de Clases?",
                     what_is_class_dist_desc=(
-                        "La distribución de clases muestra cuántas muestras pertenecen a cada categoría del conjunto de datos. "
-                        "Un conjunto balanceado tiene números similares por clase; uno desbalanceado tiene clases con muchas más muestras que otras."
+                        "La distribución de clases muestra cuántas samples pertenecen a cada categoría del conjunto de datos. "
+                        "Un conjunto balanceado tiene números similares por clase; uno desbalanceado tiene clases con muchas más samples que otras."
                     ),
                     imbalance_ratio="Ratio de Desbalance",
                     imbalance_understanding="Entendiendo el Ratio de Desbalance:",

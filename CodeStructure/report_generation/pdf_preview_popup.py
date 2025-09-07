@@ -450,37 +450,66 @@ def parse_experiment_folder(experiment_folder):
     # Parse best models and metrics
     metrics = {}
     best_model = {}
-    for d in dichotomies:
-        d_path = os.path.join(experiment_folder, d)
+    
+    if is_multiclass:
+        # Handle multiclass experiments (existing logic)
+        for d in dichotomies:
+            d_path = os.path.join(experiment_folder, d)
 
-        # Parse best runner
-        best_runner_path = os.path.join(d_path, f"best_runner_{d}.json")
-        if os.path.exists(best_runner_path):
-            try:
-                with open(best_runner_path) as f:
-                    best_model[d] = json.load(f)
-            except Exception as e:
-                print(f"Error reading {best_runner_path}: {e}")
+            # Parse best runner
+            best_runner_path = os.path.join(d_path, f"best_runner_{d}.json")
+            if os.path.exists(best_runner_path):
+                try:
+                    with open(best_runner_path) as f:
+                        best_model[d] = json.load(f)
+                except Exception as e:
+                    print(f"Error reading {best_runner_path}: {e}")
 
-        # Find latest test results
-        runs_dir = os.path.join(d_path, 'runs')
-        if os.path.isdir(runs_dir):
-            run_folders = sorted([
-                r for r in os.listdir(runs_dir)
-                if os.path.isdir(os.path.join(runs_dir, r))
-            ], reverse=True)
-            for run in run_folders:
-                test_results = os.path.join(runs_dir, run, 'test_results.csv')
-                if os.path.exists(test_results):
-                    try:
-                        with open(test_results, 'r') as f:
-                            reader = csv.reader(f)
-                            header = next(reader)
-                            row = next(reader)
-                            metrics[d] = {header[i]: row[i] for i in range(len(header))}
-                    except Exception as e:
-                        print(f"Error reading {test_results}: {e}")
-                    break
+            # Find latest test results
+            runs_dir = os.path.join(d_path, 'runs')
+            if os.path.isdir(runs_dir):
+                run_folders = sorted([
+                    r for r in os.listdir(runs_dir)
+                    if os.path.isdir(os.path.join(runs_dir, r))
+                ], reverse=True)
+                for run in run_folders:
+                    test_results = os.path.join(runs_dir, run, 'test_results.csv')
+                    if os.path.exists(test_results):
+                        try:
+                            with open(test_results, 'r') as f:
+                                reader = csv.reader(f)
+                                header = next(reader)
+                                row = next(reader)
+                                metrics[d] = {header[i]: row[i] for i in range(len(header))}
+                        except Exception as e:
+                            print(f"Error reading {test_results}: {e}")
+                        break
+    else:
+        # Handle binary experiments
+        # Find the best_runner JSON file (there should be only one)
+        for f in os.listdir(experiment_folder):
+            if 'best_runner' in f and f.endswith('.json'):
+                best_runner_path = os.path.join(experiment_folder, f)
+                try:
+                    with open(best_runner_path) as f:
+                        best_runner_data = json.load(f)
+                        best_model["dichotomy_01"] = best_runner_data
+                        
+                        # For binary experiments, we can also extract metrics from the JSON if available
+                        # The execution_state might contain performance metrics
+                        if 'execution_state' in best_runner_data:
+                            exec_state = best_runner_data['execution_state']
+                            if 'best_metric_so_far' in exec_state:
+                                # Create a basic metrics dict with only the essential metric
+                                metrics["dichotomy_01"] = {
+                                    'custom_metric': exec_state['best_metric_so_far'],
+                                    'best_metric': exec_state['best_metric_so_far']
+                                }
+                        break
+                except Exception as e:
+                    print(f"Error reading {best_runner_path}: {e}")
+
+        # For binary experiments, we don't need to search runs directory
 
     return {
         "dataset_id": dataset_name, # This is the hash
