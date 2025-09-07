@@ -1,210 +1,100 @@
+# --- Configuración de los Niveles de Búsqueda de Hiperparámetros ---
+# Define "niveles de capilaridad" que representan la profundidad y exhaustividad de la búsqueda de hiperparámetros.
+# A mayor nivel, mayor es el espacio de búsqueda y, por tanto, el coste computacional.
 capilaridad_levels:
+  # --- Nivel 1: Búsqueda Rápida (Baseline) ---
+  # Diseñado para una validación rápida del pipeline. Utiliza un espacio de búsqueda muy limitado.
   1:
-    max_seconds_per_model: 120
-    n_simulations: 1
+    max_seconds_per_model: 120  # Límite de tiempo (wall-clock) para el entrenamiento de cada configuración individual del modelo.
+    n_simulations: 1            # Número de repeticiones del experimento con la misma configuración para evaluar la estabilidad del modelo.
+    # --- Stage 1: Hiperparámetros de la Arquitectura del Experto (Red Neuronal) ---
     stage1:
-      activation_fn: relu
-      drop_out:
-      - 0.0
-      hidden_size:
-      - 30
-      lbfgs: false
-      loss_fn: custom
-      mode: random
-      n_batch:
-      - 128
-      n_epoch:
-      - 50
-      num_experts:
-      - 21
-      rb_each_expert: false
+      activation_fn: relu       # Función de activación para las capas ocultas. Opciones: 'relu', 'sigmoid', 'tanh'.
+      drop_out: [0.0]           # Tasa de dropout para la regularización de las capas ocultas. Rango: [0.0, 1.0].
+      hidden_size: [30]         # Número de neuronas en la capa oculta de cada experto.
+      lbfgs: false              # Booleano para usar el optimizador L-BFGS. Opciones: true (L-BFGS), false (Adam/SGD, según implementación).
+      loss_fn: custom           # Función de pérdida. Opciones: 'custom' (implementación propia), 'cross_entropy', 'mse'.
+      mode: random              # Modo de búsqueda de hiperparámetros. Opciones: 'random' (búsqueda aleatoria), 'grid' (búsqueda en malla).
+      n_batch: [128]            # Tamaño del lote (batch size) para el entrenamiento.
+      n_epoch: [50]             # Número máximo de épocas de entrenamiento.
+      num_experts: [21]         # Número de modelos (expertos) que componen el ensemble.
+      rb_each_expert: false     # Estrategia de rebalanceo. Opciones:
+                                # false: Se aplica un rebalanceo global al dataset una única vez. Todos los expertos usan el mismo dato.
+                                # true: Cada experto realiza su propio rebalanceo de datos. Mayor coste computacional.
+    # --- Stage 2: Hiperparámetros del Ensemble y del Rebalanceo Específico ---
     stage2:
-      Q_RB_C:
-      - 2.0
-      Q_RB_S:
-      - 1
-      - 3
-      alpha:
-      - 0.0
-      - 0.25
-      beta:
-      - 0.0
+      Q_RB_C: [0.0]             # Factor de coste para el rebalanceo por coste de la clase minoritaria.
+      Q_RB_S: [1, 2]               # Factor de sobremuestreo para SMOTE (Synthetic Minority Over-sampling Technique).
+      alpha: [0.0, 0.1, 0,2]              # Probabilidad (0 a 1) de aplicar Label Switching de una etiqueta de la clase mayoritaria a la minoritaria.
+      beta: [0.0]               # Probabilidad (0 a 1) de aplicar Label Switching de una etiqueta de la clase minoritaria a la mayoritaria.
+
+  # --- Nivel 2: Búsqueda Intermedia ---
+  # Un compromiso entre velocidad y exhaustividad, explorando un rango más amplio de hiperparámetros.
   2:
     max_seconds_per_model: 300
     n_simulations: 1
     stage1:
       activation_fn: relu
-      drop_out:
-      - 0
-      - 0.1
-      hidden_size:
-      - 30
-      - 40
+      drop_out: [0, 0.1]
+      hidden_size: [30, 40]
       lbfgs: false
       loss_fn: custom
       mode: random
-      n_batch:
-      - 128
-      - 256
-      n_epoch:
-      - 50
-      - 100
-      num_experts:
-      - 21
-      - 31
+      n_batch: [128, 256]
+      n_epoch: [50, 100]
+      num_experts: [21, 31]
       rb_each_expert: false
     stage2:
-      Q_RB_C:
-      - 2.0
-      - 5.0
-      Q_RB_S:
-      - 1
-      - 2
-      - 5
-      alpha:
-      - 0.15
-      - 0.2
-      - 0.35
-      beta:
-      - 0
-      - 0.1
+      Q_RB_C: [2.0, 5.0]
+      Q_RB_S: [1, 2, 5]
+      alpha: [0.15, 0.2, 0.35]
+      beta: [0, 0.1]
+
+  # --- Nivel 3: Búsqueda Exhaustiva ---
+  # Búsqueda profunda para el ajuste fino del modelo final, con un alto coste computacional.
   3:
     max_seconds_per_model: 600
     n_simulations: 2
     stage1:
       activation_fn: relu
-      drop_out:
-      - 0.0
-      - 0.05
-      - 0.1
-      hidden_size:
-      - 30
-      - 35
-      - 40
+      drop_out: [0, 0.1, 0.2]
+      hidden_size: [30, 40, 50]
       lbfgs: false
       loss_fn: custom
       mode: random
-      n_batch:
-      - 128
-      - 192
-      - 256
-      n_epoch:
-      - 50
-      - 75
-      - 100
-      num_experts:
-      - 21
-      - 26
-      - 31
+      n_batch: [128, 256]
+      n_epoch: [50, 100, 150]
+      num_experts: [21, 31, 41]
       rb_each_expert: false
     stage2:
-      Q_RB_C:
-      - 1.5
-      - 2.0
-      - 3.0
-      - 5.0
-      Q_RB_S:
-      - 1
-      - 2
-      - 3
-      - 5
-      - 7
-      alpha:
-      - 0.0
-      - 0.1
-      - 0.15
-      - 0.25
-      - 0.35
-      beta:
-      - 0.0
-      - 0.05
-      - 0.1
-      - 0.15
+      Q_RB_C: [2.0, 5.0, 10.0]
+      Q_RB_S: [1, 2, 5, 10]
+      alpha: [0.15, 0.2, 0.35, 0.5]
+      beta: [0, 0.1, 0.2]
+
+# --- Configuración de la Fuente de Datos ---
 data:
-  dataset_file: ./datasets/synthetic/synth_dataset.csv
-  dichotomy_id: dichotomy_03
-  external_dataset: /home/ubuntu/Downloads/_MConverter.eu_csv_dataset.csv
-  generate_new: false
+  dataset_file: ./datasets/synthetic/synth_dataset.csv # Ruta relativa al archivo del dataset.
+  # --- Parámetros para la Generación de un Dataset Sintético (si se utiliza) ---
   params:
-    n_classes: 2
-    n_features: 20
-    n_informative: 15
-    n_redundant: 5
-    n_samples: 5000
-    random_state: 41
-    test_size: 0.2
-    weights:
-    - 0.95
-    - 0.05
+    weights: [0.95, 0.05]       # Proporción de las clases para generar un dataset desbalanceado.
+    n_samples: 5000             # Número total de muestras a generar.
+    n_features: 10              # Dimensionalidad del espacio de características.
+    n_classes: 2                # Número de clases objetivo.
+
+# --- Configuración General del Modelo ---
 model:
-  lsensemble:
-    stage1:
-      activation_fn: relu
-      drop_out:
-      - 0
-      - 0.1
-      hidden_size:
-      - 30
-      - 40
-      lbfgs: false
-      loss_fn: custom
-      mode: random
-      n_batch:
-      - 128
-      - 256
-      n_epoch:
-      - 50
-      - 100
-      num_experts:
-      - 21
-      - 31
-      rb_each_expert: false
-    stage2:
-      Q_RB_C:
-      - 2.0
-      - 5.0
-      Q_RB_S:
-      - 1
-      - 2
-      - 5
-      alpha:
-      - 0.15
-      - 0.2
-      - 0.35
-      beta:
-      - 0
-      - 0.1
-  max_seconds_per_model: 300
-  mlpbayes:
-    costeN: 1
-    costeP: 1
-    s_NnBase:
-    - 20
-    - 30
-    s_No:
-    - 1
-    s_nBatch:
-    - 128
-    - 256
-    s_nEpoch:
-    - 100
-    - 200
-    s_pDOent:
-    - 0.0
-    - 0.1
-    s_pDOocu:
-    - 0.0
-    - 0.1
-    s_tActBase:
-    - tanh
-    - relu
-    s_tActSalida:
-    - identity
-  n_simulations: 1
-  selection_method: conf
+  lsensemble: {}                # Contenedor para configuraciones futuras específicas del LSEnsemble.
+  selection_method: conf        # Criterio para la selección del mejor modelo del ensemble. Opciones: 'conf' (confianza), 'accuracy', 'f1_score'.
+
+# --- Configuración para Estrategias Multiclase ---
 multiclass:
-  enabled: true
-  strategy: ovo
+  enabled: true                 # Activa el modo multiclase. Si es false, el problema se trata como binario.
+  strategy: ovo                 # Estrategia de descomposición para problemas multiclase. Opciones:
+                                # 'ovo' (One-vs-One): Se entrena un clasificador binario para cada par de clases.
+                                # 'ova' (One-vs-All): Se entrena un clasificador binario para cada clase contra todas las demás.
+
+# --- Configuración de Archivos de Salida ---
 output:
-  log_level: INFO
-  results_file: ./datasets/results/test_results.csv
+  results_folder: ./results     # Directorio para almacenar los resultados de los experimentos (reportes, modelos, etc.).
+  log_file: ./logs/experiment.log # Archivo para el registro de eventos y logs durante la ejecución.
