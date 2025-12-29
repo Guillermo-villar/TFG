@@ -38,3 +38,6 @@ best_runner_*.json
 
 # Log files
 *.log
+
+# Benchmark results (keep README but ignore result folders)
+CodeStructure/model/benchmarks/*/
