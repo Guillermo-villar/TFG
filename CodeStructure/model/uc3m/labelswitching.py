@@ -576,7 +576,7 @@ class LSEnsemble(nn.Module):
     def __init__(self, hidden_size, num_experts, alpha=0, beta=0, Q_RB_C=1, 
                  Q_RB_S=1, n_epoch=1, n_batch=1, lbfgs=False, mode='random', 
                  input_size=None, drop_out=0, activation_fn="tanh", output_act=1,
-                 loss_fn='MSE', rb_each_expert=False):  # Added loss_fn as an argument):
+                 loss_fn='MSE', rb_each_expert=False, device=None):
         """
         Parameters:
         - hidden_size (int): 
@@ -616,6 +616,9 @@ class LSEnsemble(nn.Module):
             - 'MSE': Mean Squared Error.
             - 'KL': Kull-back Leibler Divergence
             - 'BCE': Binary Cross Entropy for classification tasks.
+        - device (str or torch.device, optional, default=None):
+            Device to use for computation ('cpu', 'cuda', or torch.device).
+            If None, automatically selects CUDA if available, else CPU.
         
         """
         super(LSEnsemble, self).__init__()
@@ -649,6 +652,14 @@ class LSEnsemble(nn.Module):
         self.activation_fn = ACTIVATION_FUNCTIONS[activation_fn]
 
         self.output_mode = output_act
+        
+        # Device selection for GPU/CPU support
+        if device is None:
+            self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        elif isinstance(device, str):
+            self._device = torch.device(device)
+        else:
+            self._device = device
 
         # Initialize the experts if input_size is provided during initialization
         if input_size is not None:
@@ -667,6 +678,8 @@ class LSEnsemble(nn.Module):
                 self.output_mode
             ) for _ in range(self.num_experts)
         ])
+        # Move experts to the configured device
+        self.experts = self.experts.to(self._device)
 
     def generate_experts_data(self, x, y, w=None, Q_RB_S=1, RB_each_expert=True):
         """
@@ -777,10 +790,10 @@ class LSEnsemble(nn.Module):
                 self.total_pos += total_pos
                 self.total_neg += total_neg
                 
-            targets_sw = torch.from_numpy(targets_sw).to(x.device)
-            w_RB_SW = torch.from_numpy(w_RB_SW).to(x.device)
+            targets_sw = torch.from_numpy(targets_sw).to(self._device)
+            w_RB_SW = torch.from_numpy(w_RB_SW).to(self._device)
             y_RB_SW = torch.where(targets_sw > 0, (1 - 2 * self.beta), -(1 - 2 * self.alpha))
-            return torch.from_numpy(X_RB).float().to(x.device), y_RB_SW, w_RB_SW
+            return torch.from_numpy(X_RB).float().to(self._device), y_RB_SW, w_RB_SW
     
         if Q_RB_S > 1:
             # self.QP_RB_tr = QP_tr/Q_RB_S # Commented (Verified) 
@@ -822,12 +835,8 @@ class LSEnsemble(nn.Module):
             # Initialize weights to 1.0 for all samples if no weights are provided
             sample_weight = torch.ones_like(y_train, dtype=torch.float32)
             
-        # Ensure the data is on the same device as the model
-        # Check if model parameters exist and get the device, otherwise fallback to CPU
-        if len(list(self.parameters())) > 0:
-            device = next(self.parameters()).device
-        else:
-            device = torch.device("cpu")  # Fallback to CPU if no model parameters exist
+        # Use the configured device
+        device = self._device
 
         x_train = x_train.to(device)
         y_train = y_train.to(device)
@@ -864,7 +873,7 @@ class LSEnsemble(nn.Module):
         - self: The updated model after training.
         """
         # Initialize weights for each expert
-        weights = torch.ones((self.experts[0].y.shape[0], self.num_experts)).to(w_train.device)
+        weights = torch.ones((self.experts[0].y.shape[0], self.num_experts)).to(self._device)
     
         # Compute weights for each expert
         for i, expert in enumerate(self.experts):
@@ -1012,7 +1021,8 @@ class LSEnsemble(nn.Module):
             'beta': self.beta,
             'Q_RB_C': self.Q_RB_C,
             'Q_RB_S': self.Q_RB_S,
-            'n_epoch': self.n_epoch
+            'n_epoch': self.n_epoch,
+            'device': str(self._device)
         }
 
     def set_params(self, **params):

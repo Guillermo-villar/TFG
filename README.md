@@ -95,6 +95,7 @@ The main source code for the project is located in the `CodeStructure/` director
 
 *   `CodeStructure/GUI/`: Contains the graphical user interface. The entry point is `connector.py`.
 *   `CodeStructure/model/`: Includes the implementation of the Bayesian ensemble models and the training logic.
+*   `CodeStructure/model/benchmarks/`: Directory for storing GPU vs CPU performance benchmark results.
 *   `CodeStructure/report_generation/`: Modules responsible for generating PDF reports.
 *   `CodeStructure/ecoc.py`: Implementation of ECOC strategies for multi-class classification.
 
@@ -144,4 +145,58 @@ The main entry point for the application is the `CodeStructure/GUI/connector.py`
     Start the study. The framework will begin the process of preprocessing, training the different Bayesian ensemble models, and searching for the best strategy.
 
 4.  **View the Report:**
-    Once the analysis is complete, a report with the results will be generated, which you can view directly from
+    Once the analysis is complete, a report with the results will be generated, which you can view directly from the application.
+
+## GPU vs CPU Performance Benchmarking
+
+The framework includes a benchmarking tool to compare performance between CPU and GPU execution. This is useful for:
+- Determining if your CUDA-compatible GPU (like NVIDIA GTX 1050) provides a speedup
+- Comparing training times across different hardware configurations
+- Documenting system specifications alongside performance results
+
+### Running Benchmarks
+
+To run a GPU vs CPU comparison:
+
+```bash
+cd CodeStructure/model
+python benchmark_runner.py
+```
+
+### Options
+
+```bash
+# Run with your own dataset
+python benchmark_runner.py --dataset path/to/your/data.csv
+
+# Specify number of benchmark runs
+python benchmark_runner.py --n-runs 5
+
+# Only show device information
+python benchmark_runner.py --info-only
+
+# See all available options
+python benchmark_runner.py --help
+```
+
+### Benchmark Results
+
+Results are saved to `CodeStructure/model/benchmarks/` in folders named with your system specs:
+```
+{system_id}_{device_mode}_{timestamp}/
+    ├── system_info.json     # Complete hardware specifications
+    ├── benchmark_results.json   # Detailed timing and metrics
+    └── summary.txt          # Human-readable summary
+```
+
+### Example Output
+
+```
+==========================================================
+BENCHMARK COMPARISON SUMMARY
+==========================================================
+CPU avg time: 15.2340s
+GPU avg time: 3.4567s
+GPU Speedup: 4.41x
+==========================================================
+```
