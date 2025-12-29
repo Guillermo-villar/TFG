@@ -25,11 +25,11 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
 sys.path.insert(0, os.path.dirname(script_dir))
 
-from model.device_utils import (
+from device_utils import (
     get_device, is_cuda_available, get_system_info, 
     save_system_info, print_device_info, get_benchmark_folder_name
 )
-from model.uc3m.labelswitching import LSEnsemble
+from uc3m.labelswitching import LSEnsemble
 from sklearn.metrics import balanced_accuracy_score, accuracy_score, f1_score, confusion_matrix
 
 # Setup logging
@@ -204,7 +204,7 @@ class BenchmarkRunner:
                 'lbfgs': False,
                 'mode': 'random',
                 'activation_fn': 'relu',
-                'loss_fn': 'custom'
+                'loss_fn': 'F1'  # Valid options: MSE, KL, BCE, BCE_logit, F1
             }
         
         # Load data from CSV if path provided
